@@ -32,7 +32,11 @@ create table if not exists public.events (
   text text not null,
   start_min integer not null,
   end_min integer not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Set true only for occurrences expanded from a recurring pattern
+  -- (see expandRecurring in app/api/organize/route.js). Used purely for
+  -- the day timeline's color coding, not for any recurrence logic.
+  is_recurring boolean not null default false
 );
 
 create table if not exists public.recaps (

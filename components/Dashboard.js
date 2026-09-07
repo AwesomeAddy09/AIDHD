@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
 import {
   CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks, describeDate,
-  timeStrToMinutes, getDayBounds,
+  timeStrToMinutes, getDayBounds, findOverlaps,
 } from "@/lib/scheduling";
 import {
   fetchTasks, insertTasks, updateTask, deleteTask, startTask,
@@ -21,9 +21,11 @@ import { computeCategoryMultipliers, applyLearnedEstimates } from "@/lib/learnin
 import TimePromptModal from "@/components/TimePromptModal";
 import AmPmPromptModal from "@/components/AmPmPromptModal";
 import MonthCalendar from "@/components/MonthCalendar";
+import DayTimeline from "@/components/DayTimeline";
 import EditTaskModal from "@/components/EditTaskModal";
 import EditEventModal from "@/components/EditEventModal";
 import ClarifyModal from "@/components/ClarifyModal";
+import ConflictModal from "@/components/ConflictModal";
 import Onboarding from "@/components/Onboarding";
 
 // Three tabs instead of one long scrolling page: seeing everything at
@@ -116,6 +118,22 @@ export default function Dashboard({ userId, name }) {
   const [profile, setProfile] = useState(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [editingPreferences, setEditingPreferences] = useState(false);
+  const [conflictPrompt, setConflictPrompt] = useState(null); // { conflicts, date, proceed }
+
+  // Checks a candidate time range against that date's existing events
+  // before running `proceed`. Never blocks outright, just makes an
+  // overlap a choice instead of a silent double-booking.
+  const runWithConflictCheck = useCallback(
+    (dateStr, start, end, excludeId, proceed) => {
+      const conflicts = findOverlaps(eventsByDate[dateStr] || [], start, end, excludeId);
+      if (conflicts.length > 0) {
+        setConflictPrompt({ conflicts, date: dateStr, proceed });
+        return;
+      }
+      proceed();
+    },
+    [eventsByDate]
+  );
 
   useEffect(() => {
     (async () => {
@@ -350,8 +368,16 @@ export default function Dashboard({ userId, name }) {
         if (t.date && t.date !== todayKey) laterDates.add(t.date);
       }
 
-      // Something scheduled for later won't show up on today's plan —
-      // say so, so it doesn't look like it silently vanished.
+      // A fixed-time event landing on the calendar should always be
+      // confirmed, not just when it's scheduled for a day other than
+      // today (which also needs its own callout, since it won't show up
+      // on today's plan and shouldn't look like it silently vanished).
+      const noticeParts = [];
+      if (newEventDrafts.length === 1) {
+        noticeParts.push(`Added "${newEventDrafts[0].text}" to your calendar.`);
+      } else if (newEventDrafts.length > 1) {
+        noticeParts.push(`Added ${newEventDrafts.length} things to your calendar.`);
+      }
       if (laterDates.size > 0) {
         const sorted = [...laterDates].sort();
         const list =
@@ -360,8 +386,9 @@ export default function Dashboard({ userId, name }) {
             : sorted.length === 1
               ? describeDate(sorted[0])
               : `${sorted.slice(0, -1).map(describeDate).join(", ")} and ${describeDate(sorted[sorted.length - 1])}`;
-        setNotice(`Added. Some of this is scheduled for ${list}.`);
+        noticeParts.push(`Some of this is scheduled for ${list}.`);
       }
+      if (noticeParts.length > 0) setNotice(noticeParts.join(" "));
 
       if (newNeedsTime.length > 0) {
         setTimeQueue((prev) => [...prev, ...newNeedsTime]);
@@ -386,14 +413,18 @@ export default function Dashboard({ userId, name }) {
       const item = timeQueue[0];
       if (!item) return;
       setTimeQueue((prev) => prev.slice(1));
-      try {
-        const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
-        setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
-      } catch (e) {
-        setError("Couldn't add that to the calendar.");
-      }
+      const doInsert = async () => {
+        try {
+          const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
+          setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
+          setNotice(`Added "${item.text}" to your calendar for ${describeDate(item.date)}.`);
+        } catch (e) {
+          setError("Couldn't add that to the calendar.");
+        }
+      };
+      runWithConflictCheck(item.date, start, end, null, doInsert);
     },
-    [timeQueue, supabase, userId]
+    [timeQueue, supabase, userId, runWithConflictCheck]
   );
 
   const handleTimePromptSkip = useCallback(() => {
@@ -409,14 +440,18 @@ export default function Dashboard({ userId, name }) {
       if (ampm === "PM") hour24 += 12;
       const start = hour24 * 60 + item.minute;
       const end = start + 60;
-      try {
-        const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
-        setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
-      } catch (e) {
-        setError("Couldn't add that to the calendar.");
-      }
+      const doInsert = async () => {
+        try {
+          const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
+          setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
+          setNotice(`Added "${item.text}" to your calendar for ${describeDate(item.date)}.`);
+        } catch (e) {
+          setError("Couldn't add that to the calendar.");
+        }
+      };
+      runWithConflictCheck(item.date, start, end, null, doInsert);
     },
-    [ampmQueue, supabase, userId]
+    [ampmQueue, supabase, userId, runWithConflictCheck]
   );
 
   const handleAmPmSkip = useCallback(() => {
@@ -470,19 +505,22 @@ export default function Dashboard({ userId, name }) {
       const id = editingEvent.event.id;
       const oldDate = editingEvent.date;
       setEditingEvent(null);
-      try {
-        await updateEvent(supabase, id, { text, event_date: date, start_min: start, end_min: end });
-        setEventsByDate((prev) => {
-          const next = { ...prev };
-          next[oldDate] = (next[oldDate] || []).filter((e) => e.id !== id);
-          next[date] = [...(next[date] || []), { id, text, start, end }];
-          return next;
-        });
-      } catch (e) {
-        setError("Couldn't save those changes.");
-      }
+      const doUpdate = async () => {
+        try {
+          await updateEvent(supabase, id, { text, event_date: date, start_min: start, end_min: end });
+          setEventsByDate((prev) => {
+            const next = { ...prev };
+            next[oldDate] = (next[oldDate] || []).filter((e) => e.id !== id);
+            next[date] = [...(next[date] || []), { id, text, start, end, isRecurring: editingEvent.event.isRecurring }];
+            return next;
+          });
+        } catch (e) {
+          setError("Couldn't save those changes.");
+        }
+      };
+      runWithConflictCheck(date, start, end, id, doUpdate);
     },
-    [editingEvent, supabase]
+    [editingEvent, supabase, runWithConflictCheck]
   );
 
   const handleBreakdown = useCallback(
@@ -576,15 +614,18 @@ export default function Dashboard({ userId, name }) {
       return;
     }
     const draft = { text: eventText, start, end };
-    try {
-      const saved = await insertEvent(supabase, userId, dKey, draft);
-      setEventsByDate((prev) => ({ ...prev, [dKey]: [...(prev[dKey] || []), saved] }));
-      setEventText("");
-      setEventStart("");
-      setEventEnd("");
-    } catch (e) {
-      setError("Couldn't add that event.");
-    }
+    const doInsert = async () => {
+      try {
+        const saved = await insertEvent(supabase, userId, dKey, draft);
+        setEventsByDate((prev) => ({ ...prev, [dKey]: [...(prev[dKey] || []), saved] }));
+        setEventText("");
+        setEventStart("");
+        setEventEnd("");
+      } catch (e) {
+        setError("Couldn't add that event.");
+      }
+    };
+    runWithConflictCheck(dKey, start, end, null, doInsert);
   };
 
   const removeEvent = async (id) => {
@@ -745,6 +786,16 @@ export default function Dashboard({ userId, name }) {
             />
           ) : (
             <>
+              <div className="mb-4" style={{ border: `1px solid ${TOKENS.border}`, borderRadius: "10px", overflow: "auto", maxHeight: "420px" }}>
+                <DayTimeline
+                  date={selectedDate}
+                  events={dayEvents}
+                  tasks={scheduled}
+                  onSelectEvent={(ev) => setEditingEvent({ event: ev, date: dKey })}
+                  onSelectTask={(t) => setEditingTask(t)}
+                />
+              </div>
+
               <div className="flex flex-wrap gap-2 mb-3">
                 {dayEvents.length === 0 && <p style={{ color: TOKENS.sub, fontSize: "13px", margin: 0 }}>Nothing fixed on this day yet.</p>}
                 {dayEvents.map((ev) => (
@@ -920,6 +971,25 @@ export default function Dashboard({ userId, name }) {
           initialProfile={profile}
           onComplete={handleOnboardingComplete}
           onCancel={() => setEditingPreferences(false)}
+        />
+      )}
+
+      {conflictPrompt && (
+        <ConflictModal
+          conflicts={conflictPrompt.conflicts}
+          onAddAnyway={() => {
+            const proceed = conflictPrompt.proceed;
+            setConflictPrompt(null);
+            proceed();
+          }}
+          onDontAdd={() => setConflictPrompt(null)}
+          onGoToCalendar={() => {
+            const targetDate = conflictPrompt.date;
+            setConflictPrompt(null);
+            setActiveTab("plan");
+            setCalendarView("day");
+            setSelectedDate(new Date(targetDate + "T00:00:00"));
+          }}
         />
       )}
 

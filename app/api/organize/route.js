@@ -80,7 +80,7 @@ function expandRecurring(item, today) {
   for (let d = today; d <= boundary; d = addDays(d, 1)) {
     const dow = new Date(d + "T00:00:00Z").getUTCDay();
     if (dayIndices.includes(dow)) {
-      occurrences.push({ text: String(item.text || "").slice(0, 500), date: d, start, end });
+      occurrences.push({ text: String(item.text || "").slice(0, 500), date: d, start, end, isRecurring: true });
     }
   }
   return occurrences;
