@@ -17,6 +17,29 @@ import {
   fetchRecap, upsertRecap,
 } from "@/lib/data";
 
+// Shame-free design principle (see CLAUDE.md): someone returning after a
+// gap gets a plain, warm acknowledgment — never a pileup of what they
+// missed. This is a soft, best-effort signal (per-browser, not synced
+// across devices), which is the right tradeoff for something whose only
+// job is to avoid making a returning user feel bad.
+const RETURN_GAP_MS = 2 * 24 * 60 * 60 * 1000;
+const LAST_VISIT_KEY = "aidhd:lastVisit";
+
+// Runs exactly once, at first client render (via useState's lazy
+// initializer below) — not repeatedly, and not from an effect. Reads the
+// previous visit before overwriting it, in one atomic step.
+function checkReturningAfterGap() {
+  if (typeof window === "undefined") return false;
+  try {
+    const last = localStorage.getItem(LAST_VISIT_KEY);
+    localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+    if (last && Date.now() - Number(last) >= RETURN_GAP_MS) return true;
+  } catch (e) {
+    // localStorage unavailable (private mode, etc.) — just skip the nicety.
+  }
+  return false;
+}
+
 async function postJson(url, body) {
   const res = await fetch(url, {
     method: "POST",
@@ -45,6 +68,7 @@ export default function Dashboard({ userId, name }) {
   const [recapLoading, setRecapLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [welcomeBack] = useState(checkReturningAfterGap);
 
   useEffect(() => {
     (async () => {
@@ -225,7 +249,11 @@ export default function Dashboard({ userId, name }) {
         <header className="mb-10 flex items-start justify-between">
           <div>
             <h1 style={{ fontFamily: "var(--font-display), serif", fontWeight: 600, fontSize: "32px", letterSpacing: "-0.01em", margin: 0 }}>aidhd.</h1>
-            <p style={{ color: TOKENS.sub, fontSize: "15px", marginTop: "4px" }}>Hi {name}. Stop thinking. Start doing.</p>
+            <p style={{ color: TOKENS.sub, fontSize: "15px", marginTop: "4px" }}>
+              {welcomeBack
+                ? `Welcome back, ${name}. No need to catch up on everything at once — just pick up wherever feels right.`
+                : `Hi ${name}. Stop thinking. Start doing.`}
+            </p>
           </div>
           <button onClick={handleSignOut} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer", marginTop: "6px" }}>
             <LogOut size={13} /> Sign out
@@ -305,7 +333,7 @@ export default function Dashboard({ userId, name }) {
                       <span style={{ fontSize: "14px", textDecoration: t.done ? "line-through" : "none", color: t.done ? TOKENS.sub : TOKENS.ink }}>{t.text}</span>
                       <span style={{ fontSize: "11px", background: TOKENS.calmBg, color: TOKENS.calmText, borderRadius: "999px", padding: "2px 8px" }}>{CATEGORY_LABEL[t.category] || t.category}</span>
                       <span style={{ fontSize: "12px", color: TOKENS.sub }}>{t.minutes} min</span>
-                      {t.overflow && !t.done && <span style={{ fontSize: "11px", background: TOKENS.overflowBg, color: TOKENS.overflow, borderRadius: "999px", padding: "2px 8px" }}>doesn&apos;t fit this day</span>}
+                      {t.overflow && !t.done && <span style={{ fontSize: "11px", background: TOKENS.neutralBg, color: TOKENS.neutralText, borderRadius: "999px", padding: "2px 8px" }}>rolls to another day</span>}
                       {!t.overflow && !t.done && t.scheduledStart != null && <span style={{ fontSize: "12px", color: TOKENS.sub }}>at {minsToLabel(t.scheduledStart)}</span>}
                     </div>
                     {t.steps && t.steps.length > 0 && (
