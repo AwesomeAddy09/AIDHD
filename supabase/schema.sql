@@ -12,7 +12,13 @@ create table if not exists public.tasks (
   priority smallint not null default 2,
   done boolean not null default false,
   steps jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Time-blindness pattern learning: started_at/actual_minutes are only
+  -- set when someone uses the optional "Start" action, so they contribute
+  -- a real timing data point rather than a guess. See lib/learning.js.
+  started_at timestamptz,
+  completed_at timestamptz,
+  actual_minutes integer
 );
 
 create table if not exists public.events (

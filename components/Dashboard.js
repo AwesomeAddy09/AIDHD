@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -12,10 +12,11 @@ import {
   CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks,
 } from "@/lib/scheduling";
 import {
-  fetchTasks, insertTasks, updateTask, deleteTask,
+  fetchTasks, insertTasks, updateTask, deleteTask, startTask,
   fetchEventsByDate, insertEvent, deleteEvent,
   fetchRecap, upsertRecap,
 } from "@/lib/data";
+import { computeCategoryMultipliers, applyLearnedEstimates } from "@/lib/learning";
 
 // Shame-free design principle (see CLAUDE.md): someone returning after a
 // gap gets a plain, warm acknowledgment — never a pileup of what they
@@ -38,6 +39,22 @@ function checkReturningAfterGap() {
     // localStorage unavailable (private mode, etc.) — just skip the nicety.
   }
   return false;
+}
+
+// Shown once, ever, the first time someone has a task to look at — sets
+// honest expectations for the time-blindness learning feature before it
+// has any data to work with (see CLAUDE.md).
+const ONBOARDING_SEEN_KEY = "aidhd:seenTimeLearningIntro";
+
+function checkFirstTimeOnboarding() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (localStorage.getItem(ONBOARDING_SEEN_KEY)) return false;
+    localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function postJson(url, body) {
@@ -69,6 +86,7 @@ export default function Dashboard({ userId, name }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [welcomeBack] = useState(checkReturningAfterGap);
+  const [showOnboarding, setShowOnboarding] = useState(checkFirstTimeOnboarding);
 
   useEffect(() => {
     (async () => {
@@ -98,7 +116,12 @@ export default function Dashboard({ userId, name }) {
 
   const dKey = dateKey(selectedDate);
   const dayEvents = eventsByDate[dKey] || [];
-  const scheduled = scheduleTasks(tasks, dayEvents, selectedDate);
+  const categoryMultipliers = useMemo(() => computeCategoryMultipliers(tasks), [tasks]);
+  const adjustedTasks = useMemo(
+    () => applyLearnedEstimates(tasks, categoryMultipliers),
+    [tasks, categoryMultipliers]
+  );
+  const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate);
 
   const shiftDay = (delta) => {
     const d = new Date(selectedDate);
@@ -144,17 +167,45 @@ export default function Dashboard({ userId, name }) {
     [supabase]
   );
 
-  const toggleTaskDone = async (id) => {
-    const task = tasks.find((t) => t.id === id);
-    if (!task) return;
-    const done = !task.done;
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done } : t)));
+  const handleStartTask = async (id) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, startedAt: new Date().toISOString() } : t)));
     try {
-      await updateTask(supabase, id, { done });
+      await startTask(supabase, id);
     } catch (e) {
-      setError("Couldn't save that change.");
+      setError("Couldn't mark that as started.");
     }
   };
+
+  const toggleTaskDone = useCallback(
+    async (id) => {
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      const done = !task.done;
+
+      // Only a task the person actually started contributes a real timing
+      // data point — marking done without starting stays exactly as
+      // frictionless as before, it just doesn't teach the app anything.
+      let actualMinutes = task.actualMinutes;
+      if (done && task.startedAt) {
+        const elapsedMs = Date.now() - new Date(task.startedAt).getTime();
+        actualMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+      }
+      const completedAt = done ? new Date().toISOString() : null;
+
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done, actualMinutes } : t)));
+
+      try {
+        await updateTask(supabase, id, {
+          done,
+          actual_minutes: actualMinutes,
+          completed_at: completedAt,
+        });
+      } catch (e) {
+        setError("Couldn't save that change.");
+      }
+    },
+    [tasks, supabase]
+  );
 
   const toggleStepDone = async (taskId, stepId) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -267,6 +318,15 @@ export default function Dashboard({ userId, name }) {
           </div>
         )}
 
+        {showOnboarding && (
+          <div className="mb-6 flex items-start justify-between gap-3" style={{ background: TOKENS.neutralBg, color: TOKENS.ink, borderRadius: "10px", padding: "12px 14px", fontSize: "13px", lineHeight: 1.5 }}>
+            <span>
+              One thing worth knowing: aidhd gets better at estimating how long things take <em>you</em> specifically, the more you use it. For the first couple of weeks it&apos;s just learning — treat early estimates as a first guess, not a verdict.
+            </span>
+            <button onClick={() => setShowOnboarding(false)} style={{ background: "none", border: "none", color: TOKENS.neutralText, cursor: "pointer", flexShrink: 0 }}><X size={16} /></button>
+          </div>
+        )}
+
         <section className="mb-10">
           <div className="flex items-center gap-2 mb-3"><Inbox size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Dump it here</h2></div>
           <textarea
@@ -333,6 +393,12 @@ export default function Dashboard({ userId, name }) {
                       <span style={{ fontSize: "14px", textDecoration: t.done ? "line-through" : "none", color: t.done ? TOKENS.sub : TOKENS.ink }}>{t.text}</span>
                       <span style={{ fontSize: "11px", background: TOKENS.calmBg, color: TOKENS.calmText, borderRadius: "999px", padding: "2px 8px" }}>{CATEGORY_LABEL[t.category] || t.category}</span>
                       <span style={{ fontSize: "12px", color: TOKENS.sub }}>{t.minutes} min</span>
+                      {t.rawMinutes != null && (
+                        <span style={{ fontSize: "12px", color: TOKENS.sub, fontStyle: "italic" }}>usually closer to {t.minutes} min for you</span>
+                      )}
+                      {t.startedAt && !t.done && (
+                        <span style={{ fontSize: "11px", background: TOKENS.neutralBg, color: TOKENS.neutralText, borderRadius: "999px", padding: "2px 8px" }}>in progress</span>
+                      )}
                       {t.overflow && !t.done && <span style={{ fontSize: "11px", background: TOKENS.neutralBg, color: TOKENS.neutralText, borderRadius: "999px", padding: "2px 8px" }}>rolls to another day</span>}
                       {!t.overflow && !t.done && t.scheduledStart != null && <span style={{ fontSize: "12px", color: TOKENS.sub }}>at {minsToLabel(t.scheduledStart)}</span>}
                     </div>
@@ -349,6 +415,12 @@ export default function Dashboard({ userId, name }) {
                       </div>
                     )}
                     <div className="flex items-center gap-3 mt-2">
+                      {!t.done && !t.startedAt && (
+                        <button onClick={() => handleStartTask(t.id)}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.calm, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
+                          <Play size={12} /> Start
+                        </button>
+                      )}
                       {(!t.steps || t.steps.length === 0) && (
                         <button onClick={() => handleBreakdown(t)} disabled={breakingId === t.id}
                           style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.now, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
