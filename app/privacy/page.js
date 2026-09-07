@@ -36,6 +36,11 @@ export default function PrivacyPage() {
               If you use the optional &quot;Start&quot; button on a task, when you started and
               finished it. This is what lets the app learn your patterns over time
             </li>
+            <li>
+              If you use the Lesson Recorder, the transcript and summary it produces, only until
+              you tap Discard. The raw audio itself is never stored, it&apos;s discarded the moment
+              it&apos;s transcribed
+            </li>
           </ul>
         </Section>
 
@@ -49,10 +54,18 @@ export default function PrivacyPage() {
 
         <Section title="What we send to Claude (Anthropic)">
           <p style={para}>
-            When you organize a brain dump, break down a task, or generate a nightly recap, the
-            relevant text is sent to Anthropic&apos;s Claude API to process it. That&apos;s what
-            actually does the organizing. It&apos;s sent directly from our server, and Anthropic&apos;s
-            API doesn&apos;t use it to train their models.
+            When you organize a brain dump, break down a task, generate a nightly recap, or
+            summarize a Lesson Recorder transcript, the relevant text is sent to Anthropic&apos;s
+            Claude API to process it. That&apos;s what actually does the organizing. It&apos;s sent
+            directly from our server, and Anthropic&apos;s API doesn&apos;t use it to train their models.
+          </p>
+        </Section>
+
+        <Section title="What we send to OpenAI">
+          <p style={para}>
+            If you use the Lesson Recorder, each audio segment is sent directly from our server to
+            OpenAI&apos;s transcription API to turn it into text. OpenAI doesn&apos;t receive the audio
+            from your device directly, and we don&apos;t keep a copy of it afterward.
           </p>
         </Section>
 

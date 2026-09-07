@@ -75,7 +75,23 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Lesson Recorder: raw audio is never written anywhere, only the
+-- resulting transcript and ADHD-friendly summary, and only until the
+-- user taps Discard (no auto-expiry). See components/Recorder.js.
+create table if not exists public.recordings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  transcript text not null,
+  summary text not null,
+  created_at timestamptz not null default now()
+);
+
+-- One-time consent notice ack for the Lesson Recorder (recording other
+-- people may require their consent depending on where the user lives).
+alter table public.profiles add column if not exists recorder_consent_ack_at timestamptz;
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
+create index if not exists recordings_user_id_idx on public.recordings (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);
 create index if not exists recaps_user_id_date_idx on public.recaps (user_id, recap_date);
 create index if not exists api_usage_user_route_time_idx on public.api_usage (user_id, route, created_at);
@@ -90,12 +106,14 @@ grant select, insert, update, delete on public.events to anon, authenticated;
 grant select, insert, update, delete on public.recaps to anon, authenticated;
 grant select, insert on public.api_usage to anon, authenticated;
 grant select, insert, update on public.profiles to anon, authenticated;
+grant select, insert, delete on public.recordings to anon, authenticated;
 
 alter table public.tasks enable row level security;
 alter table public.events enable row level security;
 alter table public.recaps enable row level security;
 alter table public.api_usage enable row level security;
 alter table public.profiles enable row level security;
+alter table public.recordings enable row level security;
 
 create policy "tasks: owner read" on public.tasks for select using (auth.uid() = user_id);
 create policy "tasks: owner insert" on public.tasks for insert with check (auth.uid() = user_id);
@@ -118,3 +136,7 @@ create policy "api_usage: owner insert" on public.api_usage for insert with chec
 create policy "profiles: owner read" on public.profiles for select using (auth.uid() = user_id);
 create policy "profiles: owner insert" on public.profiles for insert with check (auth.uid() = user_id);
 create policy "profiles: owner update" on public.profiles for update using (auth.uid() = user_id);
+
+create policy "recordings: owner read" on public.recordings for select using (auth.uid() = user_id);
+create policy "recordings: owner insert" on public.recordings for insert with check (auth.uid() = user_id);
+create policy "recordings: owner delete" on public.recordings for delete using (auth.uid() = user_id);

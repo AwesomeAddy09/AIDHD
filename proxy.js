@@ -33,6 +33,7 @@ export async function proxy(request) {
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/auth") ||
     request.nextUrl.pathname.startsWith("/privacy") ||
+    request.nextUrl.pathname.startsWith("/terms") ||
     // Reachable from the (unauthenticated) login page itself, to check
     // whether the dev-only "administrator test account" button applies.
     request.nextUrl.pathname.startsWith("/api/dev-login");

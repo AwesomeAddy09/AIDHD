@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil, Settings,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil, Settings, Mic,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -699,6 +700,9 @@ export default function Dashboard({ userId, name }) {
             </p>
           </div>
           <div className="flex flex-col items-end gap-2" style={{ marginTop: "6px" }}>
+            <Link href="/recorder" className="flex items-center gap-1" style={{ color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>
+              <Mic size={13} /> Lesson Recorder
+            </Link>
             <button onClick={() => setEditingPreferences(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
               <Settings size={13} /> Preferences
             </button>
