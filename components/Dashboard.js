@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -17,6 +17,8 @@ import {
   fetchRecap, upsertRecap,
 } from "@/lib/data";
 import { computeCategoryMultipliers, applyLearnedEstimates } from "@/lib/learning";
+import TimePromptModal from "@/components/TimePromptModal";
+import MonthCalendar from "@/components/MonthCalendar";
 
 // Shame-free design principle (see CLAUDE.md): someone returning after a
 // gap gets a plain, warm acknowledgment — never a pileup of what they
@@ -88,6 +90,9 @@ export default function Dashboard({ userId, name }) {
   const [notice, setNotice] = useState("");
   const [welcomeBack] = useState(checkReturningAfterGap);
   const [showOnboarding, setShowOnboarding] = useState(checkFirstTimeOnboarding);
+  const [calendarView, setCalendarView] = useState("day"); // "day" | "month"
+  const [monthDate, setMonthDate] = useState(new Date());
+  const [timeQueue, setTimeQueue] = useState([]); // items needing a start/end time
 
   useEffect(() => {
     (async () => {
@@ -136,12 +141,13 @@ export default function Dashboard({ userId, name }) {
     setError("");
     setNotice("");
     try {
-      const { tasks: newTaskDrafts, events: newEventDrafts } = await postJson("/api/organize", {
-        dump,
-        today: dateKey(new Date()),
-      });
+      const {
+        tasks: newTaskDrafts,
+        events: newEventDrafts,
+        needsTime: newNeedsTime,
+      } = await postJson("/api/organize", { dump, today: dateKey(new Date()) });
 
-      if (newTaskDrafts.length === 0 && newEventDrafts.length === 0) {
+      if (newTaskDrafts.length === 0 && newEventDrafts.length === 0 && newNeedsTime.length === 0) {
         setError("Didn't find anything actionable in that — try adding a bit more detail.");
         return;
       }
@@ -184,6 +190,10 @@ export default function Dashboard({ userId, name }) {
         setNotice(`Added — some of this is scheduled for ${list}.`);
       }
 
+      if (newNeedsTime.length > 0) {
+        setTimeQueue((prev) => [...prev, ...newNeedsTime]);
+      }
+
       setDump("");
     } catch (e) {
       setError(e.message || "Couldn't organize that. Try again in a moment.");
@@ -191,6 +201,25 @@ export default function Dashboard({ userId, name }) {
       setOrganizing(false);
     }
   }, [dump, supabase, userId]);
+
+  const handleTimePromptSave = useCallback(
+    async ({ start, end }) => {
+      const item = timeQueue[0];
+      if (!item) return;
+      setTimeQueue((prev) => prev.slice(1));
+      try {
+        const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
+        setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
+      } catch (e) {
+        setError("Couldn't add that to the calendar.");
+      }
+    },
+    [timeQueue, supabase, userId]
+  );
+
+  const handleTimePromptSkip = useCallback(() => {
+    setTimeQueue((prev) => prev.slice(1));
+  }, []);
 
   const handleBreakdown = useCallback(
     async (task) => {
@@ -396,36 +425,74 @@ export default function Dashboard({ userId, name }) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Clock size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Calendar</h2></div>
             <div className="flex items-center gap-3">
-              <button onClick={() => shiftDay(-1)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><ChevronLeft size={18} /></button>
-              <span style={{ fontSize: "13px", minWidth: "150px", textAlign: "center" }}>
-                {isToday(selectedDate) ? "Today · " : ""}{DAY_NAMES[selectedDate.getDay()]}, {selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              </span>
-              <button onClick={() => shiftDay(1)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><ChevronRight size={18} /></button>
+              {calendarView === "day" && (
+                <>
+                  <button onClick={() => shiftDay(-1)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><ChevronLeft size={18} /></button>
+                  <span style={{ fontSize: "13px", minWidth: "150px", textAlign: "center" }}>
+                    {isToday(selectedDate) ? "Today · " : ""}{DAY_NAMES[selectedDate.getDay()]}, {selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </span>
+                  <button onClick={() => shiftDay(1)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><ChevronRight size={18} /></button>
+                </>
+              )}
+              <button
+                onClick={() => {
+                  if (calendarView === "day") {
+                    setMonthDate(selectedDate);
+                    setCalendarView("month");
+                  } else {
+                    setCalendarView("day");
+                  }
+                }}
+                title={calendarView === "day" ? "Month view" : "Day view"}
+                style={{ background: "none", border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "5px 8px", cursor: "pointer", color: TOKENS.ink, display: "flex", alignItems: "center" }}
+              >
+                {calendarView === "day" ? <CalendarRange size={16} /> : <CalendarDays size={16} />}
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {dayEvents.length === 0 && <p style={{ color: TOKENS.sub, fontSize: "13px", margin: 0 }}>Nothing fixed on this day yet.</p>}
-            {dayEvents.map((ev) => (
-              <div key={ev.id} className="flex items-center gap-2" style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "999px", padding: "6px 12px", fontSize: "13px" }}>
-                <span>{ev.text} · {minsToLabel(ev.start)}–{minsToLabel(ev.end)}</span>
-                <button onClick={() => removeEvent(ev.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><X size={13} /></button>
+
+          {calendarView === "month" ? (
+            <MonthCalendar
+              monthDate={monthDate}
+              onChangeMonth={(delta) => setMonthDate((prev) => {
+                const d = new Date(prev);
+                d.setMonth(d.getMonth() + delta);
+                return d;
+              })}
+              eventsByDate={eventsByDate}
+              tasks={tasks}
+              onSelectDay={(d) => {
+                setSelectedDate(d);
+                setCalendarView("day");
+              }}
+            />
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {dayEvents.length === 0 && <p style={{ color: TOKENS.sub, fontSize: "13px", margin: 0 }}>Nothing fixed on this day yet.</p>}
+                {dayEvents.map((ev) => (
+                  <div key={ev.id} className="flex items-center gap-2" style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "999px", padding: "6px 12px", fontSize: "13px" }}>
+                    <span>{ev.text} · {minsToLabel(ev.start)}–{minsToLabel(ev.end)}</span>
+                    <button onClick={() => removeEvent(ev.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><X size={13} /></button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <input value={eventText} onChange={(e) => setEventText(e.target.value)} placeholder="e.g. Dentist"
-              style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", width: "140px", outline: "none" }} />
-            <div className="flex items-center gap-2" style={{ flexWrap: "nowrap" }}>
-              <input type="time" value={eventStart} onChange={(e) => setEventStart(e.target.value)}
-                style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
-              <span style={{ color: TOKENS.sub, fontSize: "13px" }}>to</span>
-              <input type="time" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)}
-                style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
-            </div>
-            <button onClick={addEvent} className="flex items-center gap-1" style={{ background: "none", border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 12px", fontSize: "13px", cursor: "pointer", color: TOKENS.ink }}>
-              <Plus size={14} /> Add
-            </button>
-          </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <input value={eventText} onChange={(e) => setEventText(e.target.value)} placeholder="e.g. Dentist"
+                  style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", width: "140px", outline: "none" }} />
+                <div className="flex items-center gap-2" style={{ flexWrap: "nowrap" }}>
+                  <input type="time" value={eventStart} onChange={(e) => setEventStart(e.target.value)}
+                    style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
+                  <span style={{ color: TOKENS.sub, fontSize: "13px" }}>to</span>
+                  <input type="time" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)}
+                    style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
+                </div>
+                <button onClick={addEvent} className="flex items-center gap-1" style={{ background: "none", border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 12px", fontSize: "13px", cursor: "pointer", color: TOKENS.ink }}>
+                  <Plus size={14} /> Add
+                </button>
+              </div>
+            </>
+          )}
         </section>
 
         <section className="mb-10">
@@ -442,6 +509,9 @@ export default function Dashboard({ userId, name }) {
                     <div className="flex items-center flex-wrap gap-2">
                       <span style={{ fontSize: "14px", textDecoration: t.done ? "line-through" : "none", color: t.done ? TOKENS.sub : TOKENS.ink }}>{t.text}</span>
                       <span style={{ fontSize: "11px", background: TOKENS.calmBg, color: TOKENS.calmText, borderRadius: "999px", padding: "2px 8px" }}>{CATEGORY_LABEL[t.category] || t.category}</span>
+                      {t.dueDate && (
+                        <span style={{ fontSize: "11px", background: TOKENS.nowBg, color: TOKENS.nowText, borderRadius: "999px", padding: "2px 8px" }}>due {describeDate(t.dueDate)}</span>
+                      )}
                       <span style={{ fontSize: "12px", color: TOKENS.sub }}>{t.minutes} min</span>
                       {t.rawMinutes != null && (
                         <span style={{ fontSize: "12px", color: TOKENS.sub, fontStyle: "italic" }}>usually closer to {t.minutes} min for you</span>
@@ -508,6 +578,14 @@ export default function Dashboard({ userId, name }) {
         </footer>
 
       </div>
+
+      {timeQueue.length > 0 && (
+        <TimePromptModal
+          item={timeQueue[0]}
+          onSave={handleTimePromptSave}
+          onSkip={handleTimePromptSkip}
+        />
+      )}
     </div>
   );
 }
