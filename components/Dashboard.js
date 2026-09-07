@@ -26,6 +26,15 @@ import EditEventModal from "@/components/EditEventModal";
 import ClarifyModal from "@/components/ClarifyModal";
 import Onboarding from "@/components/Onboarding";
 
+// Three tabs instead of one long scrolling page: seeing everything at
+// once tends to overwhelm people with ADHD more than it helps them, so
+// only one focused section is on screen at a time.
+const TABS = [
+  { key: "dump", label: "Dump", icon: Inbox },
+  { key: "plan", label: "Plan", icon: ListTree },
+  { key: "wind-down", label: "Wind down", icon: Moon },
+];
+
 // Shame-free design principle (see CLAUDE.md): someone returning after a
 // gap gets a plain, warm acknowledgment — never a pileup of what they
 // missed. This is a soft, best-effort signal (per-browser, not synced
@@ -97,6 +106,7 @@ export default function Dashboard({ userId, name }) {
   const [welcomeBack] = useState(checkReturningAfterGap);
   const [showOnboarding, setShowOnboarding] = useState(checkFirstTimeOnboarding);
   const [calendarView, setCalendarView] = useState("day"); // "day" | "month"
+  const [activeTab, setActiveTab] = useState("dump"); // "dump" | "plan" | "wind-down"
   const [monthDate, setMonthDate] = useState(new Date());
   const [timeQueue, setTimeQueue] = useState([]); // items needing a start/end time
   const [ampmQueue, setAmpmQueue] = useState([]); // items needing AM/PM clarified
@@ -361,6 +371,9 @@ export default function Dashboard({ userId, name }) {
       }
 
       setDump("");
+      // Jump to the tab that actually shows what just happened, instead
+      // of leaving the result a tab away.
+      setActiveTab("plan");
     } catch (e) {
       setError(e.message || "Couldn't organize that. Try again in a moment.");
     } finally {
@@ -622,7 +635,7 @@ export default function Dashboard({ userId, name }) {
 
   return (
     <div style={{ background: TOKENS.bg, minHeight: "100vh", fontFamily: "var(--font-body), sans-serif", color: TOKENS.ink }}>
-      <div className="mx-auto max-w-2xl px-5 py-10">
+      <div className="mx-auto max-w-2xl px-5 pt-10" style={{ paddingBottom: "96px" }}>
 
         <header className="mb-10 flex items-start justify-between">
           <div>
@@ -666,6 +679,7 @@ export default function Dashboard({ userId, name }) {
           </div>
         )}
 
+        {activeTab === "dump" && (
         <section className="mb-10">
           <div className="flex items-center gap-2 mb-3"><Inbox size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Dump it here</h2></div>
           <textarea
@@ -680,7 +694,10 @@ export default function Dashboard({ userId, name }) {
             {organizing ? "Sorting it out" : "Sort it out"}
           </button>
         </section>
+        )}
 
+        {activeTab === "plan" && (
+        <>
         <section className="mb-10">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Clock size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Calendar</h2></div>
@@ -822,7 +839,10 @@ export default function Dashboard({ userId, name }) {
             ))}
           </div>
         </section>
+        </>
+        )}
 
+        {activeTab === "wind-down" && (
         <section className="mb-6">
           <div className="flex items-center gap-2 mb-3"><Moon size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Wind down</h2></div>
           {recap ? (
@@ -836,12 +856,38 @@ export default function Dashboard({ userId, name }) {
             {recapLoading ? "Writing your recap" : "Wrap up my day"}
           </button>
         </section>
+        )}
 
         <footer style={{ textAlign: "center", paddingTop: "8px" }}>
           <a href="/privacy" style={{ color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>Privacy</a>
         </footer>
 
       </div>
+
+      <nav
+        style={{
+          position: "fixed", bottom: 0, left: 0, right: 0,
+          background: TOKENS.card, borderTop: `1px solid ${TOKENS.border}`,
+          zIndex: 40, paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
+      >
+        <div className="mx-auto max-w-2xl flex">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className="flex flex-col items-center"
+              style={{
+                flex: 1, gap: "3px", background: "none", border: "none", cursor: "pointer",
+                color: activeTab === key ? TOKENS.now : TOKENS.sub, padding: "10px 0",
+              }}
+            >
+              <Icon size={20} />
+              <span style={{ fontSize: "11px", fontWeight: activeTab === key ? 500 : 400 }}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {timeQueue.length > 0 && (
         <TimePromptModal
