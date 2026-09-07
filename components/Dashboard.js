@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
   ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil,
-  Settings as SettingsIcon, Mic, SlidersHorizontal, Focus,
+  Settings as SettingsIcon, Mic, Focus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -34,7 +34,6 @@ import {
   notificationsSupported, registerReminderServiceWorker, requestNotificationPermission,
   showReminderNotification, scheduleReminders, clearScheduledReminders, REMINDER_RESCAN_MS,
 } from "@/lib/reminders";
-import SettingsPanel from "@/components/Settings";
 import { pickSettings, applySettingsToDocument, cacheSettings } from "@/lib/settings";
 import { playCompletionSound } from "@/lib/sound";
 
@@ -148,7 +147,6 @@ export default function Dashboard({ userId, name }) {
   const [clarifyQueue, setClarifyQueue] = useState([]); // ambiguous edit/delete/complete requests
   const [profile, setProfile] = useState(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [editingPreferences, setEditingPreferences] = useState(false);
   const [editingSettings, setEditingSettings] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState(null); // { conflicts, date, proceed }
 
@@ -233,7 +231,7 @@ export default function Dashboard({ userId, name }) {
         onboardingCompleted: true,
       }));
       setNeedsOnboarding(false);
-      setEditingPreferences(false);
+      setEditingSettings(false);
     },
     [supabase, userId]
   );
@@ -878,6 +876,23 @@ export default function Dashboard({ userId, name }) {
     return <Onboarding name={name} onComplete={handleOnboardingComplete} />;
   }
 
+  if (editingSettings) {
+    return (
+      <Onboarding
+        name={name}
+        isEdit
+        initialProfile={profile}
+        onComplete={handleOnboardingComplete}
+        onCancel={() => setEditingSettings(false)}
+        remindersEnabled={remindersEnabled}
+        reminderLeadMinutes={reminderLeadMinutes}
+        onUpdateReminderSettings={handleUpdateReminderSettings}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+      />
+    );
+  }
+
   return (
     <div style={{ background: TOKENS.bg, minHeight: "100vh", fontFamily: "var(--font-body), sans-serif", color: TOKENS.ink }}>
       <div className="mx-auto max-w-2xl px-5 pt-10" style={{ paddingBottom: "96px" }}>
@@ -895,11 +910,8 @@ export default function Dashboard({ userId, name }) {
             <Link href="/recorder" className="flex items-center gap-1" style={{ color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>
               <Mic size={13} /> Lesson Recorder
             </Link>
-            <button onClick={() => setEditingPreferences(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
-              <SettingsIcon size={13} /> Preferences
-            </button>
             <button onClick={() => setEditingSettings(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
-              <SlidersHorizontal size={13} /> Settings
+              <SettingsIcon size={13} /> Settings
             </button>
             <button onClick={handleSignOut} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
               <LogOut size={13} /> Sign out
@@ -1195,27 +1207,6 @@ export default function Dashboard({ userId, name }) {
           item={clarifyQueue[0]}
           onChoose={handleClarifyChoose}
           onSkip={handleClarifySkip}
-        />
-      )}
-
-      {editingPreferences && (
-        <Onboarding
-          name={name}
-          isEdit
-          initialProfile={profile}
-          onComplete={handleOnboardingComplete}
-          onCancel={() => setEditingPreferences(false)}
-          remindersEnabled={remindersEnabled}
-          reminderLeadMinutes={reminderLeadMinutes}
-          onUpdateReminderSettings={handleUpdateReminderSettings}
-        />
-      )}
-
-      {editingSettings && (
-        <SettingsPanel
-          settings={settings}
-          onUpdate={handleUpdateSettings}
-          onClose={() => setEditingSettings(false)}
         />
       )}
 

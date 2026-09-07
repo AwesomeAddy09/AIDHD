@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { TOKENS } from "@/lib/theme";
 import { minsToLabel } from "@/lib/scheduling";
 
@@ -51,13 +52,90 @@ function toMin(hhmm) {
 
 const LEAD_TIME_OPTIONS = [5, 10, 15, 20, 30, 60];
 
+const THEME_OPTIONS = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
+];
+const TEXT_SIZE_OPTIONS = [
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Medium" },
+  { value: "large", label: "Large" },
+];
+const ACCENT_OPTIONS = [
+  { value: "amber", label: "Amber", swatch: "#D98E2B" },
+  { value: "teal", label: "Teal", swatch: "#3E8C82" },
+  { value: "blue", label: "Blue", swatch: "#4C6FA5" },
+];
+const DENSITY_OPTIONS = [
+  { value: "compact", label: "Compact" },
+  { value: "comfortable", label: "Comfortable" },
+];
+
+function SegmentedControl({ options, value, onChange }) {
+  return (
+    <div className="flex" style={{ background: TOKENS.neutralBg, borderRadius: "10px", padding: "3px", gap: "3px" }}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          style={{
+            flex: 1, border: "none", borderRadius: "8px", padding: "7px 10px", fontSize: "13px", cursor: "pointer",
+            background: value === opt.value ? TOKENS.card : "transparent",
+            color: value === opt.value ? TOKENS.ink : TOKENS.sub,
+            fontWeight: value === opt.value ? 500 : 400,
+          }}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ToggleButton({ on, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        background: on ? TOKENS.now : TOKENS.neutralBg,
+        color: on ? "#fff" : TOKENS.sub,
+        border: "none", borderRadius: "999px", padding: "6px 14px", fontSize: "13px", fontWeight: 500, cursor: "pointer",
+      }}
+    >
+      {on ? "On" : "Off"}
+    </button>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: "20px" }}>
+      <div style={{ fontSize: "12px", color: TOKENS.sub, marginBottom: "8px" }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Row({ label, children, last = false }) {
+  return (
+    <div className="flex items-center justify-between" style={{ marginBottom: last ? 0 : "14px" }}>
+      <span style={{ fontSize: "13px", color: TOKENS.ink }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
 // Full-takeover flow shown once after sign-up (stage starts at "welcome"),
 // or reopened later in edit mode (isEdit=true skips straight to the
-// questions, pre-filled). onComplete receives the raw answers; Dashboard
-// handles parsing the sleep answer and persisting everything.
+// questions, pre-filled) as the single "Settings" screen — display
+// settings, reminders, and the personalization questions all in one
+// place. onComplete receives the raw question answers; Dashboard handles
+// parsing the sleep answer and persisting everything.
 export default function Onboarding({
   name, isEdit = false, initialProfile = null, onComplete, onCancel,
   remindersEnabled, reminderLeadMinutes, onUpdateReminderSettings,
+  settings, onUpdateSettings,
 }) {
   const [stage, setStage] = useState(isEdit ? "questions" : "welcome");
   const [welcomeVisible, setWelcomeVisible] = useState(true);
@@ -99,19 +177,21 @@ export default function Onboarding({
     goNext();
   };
 
-  // The welcome flash is a deliberate brief, centered moment — everything
-  // else is real content, which should sit near the top instead of
-  // floating in the middle of a mostly-empty screen.
+  // Every stage here is a full page in its own right (Dashboard renders
+  // it instead of its own content, the same way it already does for
+  // first-time onboarding) rather than an overlay stacked on top of
+  // something else, so this is just a normal top-aligned page like the
+  // rest of the app — no position:fixed, no risk of a short screen
+  // leaving a huge dead area below it.
   const wrapCentered = {
-    position: "fixed", inset: 0, background: TOKENS.bg,
+    minHeight: "100vh", background: TOKENS.bg,
     display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "24px", zIndex: 60,
+    padding: "24px",
   };
   const wrapTop = {
-    position: "fixed", inset: 0, background: TOKENS.bg,
+    minHeight: "100vh", background: TOKENS.bg,
     display: "flex", flexDirection: "column", alignItems: "center",
-    padding: "24px", paddingTop: "64px", gap: "14px",
-    zIndex: 60, overflowY: "auto",
+    padding: "24px", paddingTop: "64px", gap: "14px", paddingBottom: "64px",
   };
 
   if (stage === "welcome") {
@@ -159,28 +239,77 @@ export default function Onboarding({
 
   const q = QUESTIONS[stepIndex];
   const isLast = stepIndex === QUESTIONS.length - 1;
+  const cardStyle = { background: TOKENS.card, borderRadius: "14px", padding: "20px 28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" };
 
   return (
     <div style={wrapTop}>
       {isEdit && (
-        <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "20px 28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}>
+        <div style={{ width: "420px", maxWidth: "100%" }}>
+          <button
+            onClick={onCancel}
+            className="flex items-center gap-1"
+            style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "13px", cursor: "pointer", padding: 0, marginBottom: "16px" }}
+          >
+            <ArrowLeft size={14} /> Back
+          </button>
+          <h1 style={{ fontFamily: "var(--font-display), serif", fontWeight: 600, fontSize: "26px", margin: "0 0 4px" }}>
+            Settings
+          </h1>
+          <p style={{ color: TOKENS.sub, fontSize: "13px", margin: 0 }}>
+            Display, reminders, and a bit about you.
+          </p>
+        </div>
+      )}
+
+      {isEdit && (
+        <div style={cardStyle}>
+          <div style={{ fontSize: "14px", fontWeight: 500, margin: "0 0 14px" }}>Display</div>
+
+          <Field label="Theme">
+            <SegmentedControl options={THEME_OPTIONS} value={settings.theme} onChange={(v) => onUpdateSettings({ theme: v })} />
+          </Field>
+          <Field label="Text size">
+            <SegmentedControl options={TEXT_SIZE_OPTIONS} value={settings.textSize} onChange={(v) => onUpdateSettings({ textSize: v })} />
+          </Field>
+          <Field label="Accent color">
+            <div className="flex items-center gap-3">
+              {ACCENT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => onUpdateSettings({ accentColor: opt.value })}
+                  title={opt.label}
+                  aria-label={opt.label}
+                  style={{
+                    width: "32px", height: "32px", borderRadius: "999px", background: opt.swatch,
+                    border: "none", cursor: "pointer",
+                    outline: settings.accentColor === opt.value ? `2px solid ${TOKENS.ink}` : "none",
+                    outlineOffset: "2px",
+                  }}
+                />
+              ))}
+            </div>
+          </Field>
+          <Field label="Task list density">
+            <SegmentedControl options={DENSITY_OPTIONS} value={settings.taskDensity} onChange={(v) => onUpdateSettings({ taskDensity: v })} />
+          </Field>
+
+          <Row label="Reduce motion">
+            <ToggleButton on={settings.reduceMotion} onToggle={() => onUpdateSettings({ reduceMotion: !settings.reduceMotion })} />
+          </Row>
+          <Row label="Completion sound" last>
+            <ToggleButton on={settings.completionSoundEnabled} onToggle={() => onUpdateSettings({ completionSoundEnabled: !settings.completionSoundEnabled })} />
+          </Row>
+        </div>
+      )}
+
+      {isEdit && (
+        <div style={cardStyle}>
           <div style={{ fontSize: "14px", fontWeight: 500, margin: "0 0 12px" }}>Reminders</div>
-          <div className="flex items-center justify-between" style={{ marginBottom: (remindersEnabled ?? true) ? "12px" : 0 }}>
-            <span style={{ fontSize: "13px", color: TOKENS.sub }}>Notify me before timed things start</span>
-            <button
-              onClick={() => onUpdateReminderSettings({ reminders_enabled: !(remindersEnabled ?? true) })}
-              style={{
-                background: (remindersEnabled ?? true) ? TOKENS.now : TOKENS.neutralBg,
-                color: (remindersEnabled ?? true) ? "#fff" : TOKENS.sub,
-                border: "none", borderRadius: "999px", padding: "6px 14px", fontSize: "13px", fontWeight: 500, cursor: "pointer",
-              }}
-            >
-              {(remindersEnabled ?? true) ? "On" : "Off"}
-            </button>
-          </div>
+          <Row label="Notify me before timed things start" last={!(remindersEnabled ?? true)}>
+            <ToggleButton on={remindersEnabled ?? true} onToggle={() => onUpdateReminderSettings({ reminders_enabled: !(remindersEnabled ?? true) })} />
+          </Row>
           {(remindersEnabled ?? true) && (
-            <div className="flex items-center justify-between">
-              <span style={{ fontSize: "13px", color: TOKENS.sub }}>How much lead time</span>
+            <Row label="How much lead time" last>
               <select
                 value={reminderLeadMinutes ?? 10}
                 onChange={(e) => onUpdateReminderSettings({ reminder_lead_minutes: Number(e.target.value) })}
@@ -190,21 +319,16 @@ export default function Onboarding({
                   <option key={m} value={m}>{m} minutes</option>
                 ))}
               </select>
-            </div>
+            </Row>
           )}
         </div>
       )}
 
-      <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}>
+      <div style={cardStyle}>
         <div className="flex items-center justify-between mb-4">
           <span style={{ fontSize: "12px", color: TOKENS.sub }}>
-            {isEdit ? "Editing preferences" : `Question ${stepIndex + 1} of ${QUESTIONS.length}`}
+            {isEdit ? "About you · " : ""}Question {stepIndex + 1} of {QUESTIONS.length}
           </span>
-          {isEdit && (
-            <button onClick={onCancel} style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
-              Close
-            </button>
-          )}
         </div>
 
         <p style={{ fontSize: "16px", color: TOKENS.ink, lineHeight: 1.5, margin: "0 0 6px", fontWeight: 500 }}>
