@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil, Settings, Mic,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil,
+  Settings as SettingsIcon, Mic, SlidersHorizontal, Focus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
 import {
   CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks, describeDate,
-  timeStrToMinutes, getDayBounds, findOverlaps,
+  timeStrToMinutes, getDayBounds, findOverlaps, pickNextTask,
 } from "@/lib/scheduling";
 import {
   fetchTasks, insertTasks, updateTask, deleteTask, startTask,
@@ -33,6 +34,9 @@ import {
   notificationsSupported, registerReminderServiceWorker, requestNotificationPermission,
   showReminderNotification, scheduleReminders, clearScheduledReminders, REMINDER_RESCAN_MS,
 } from "@/lib/reminders";
+import SettingsPanel from "@/components/Settings";
+import { pickSettings, applySettingsToDocument, cacheSettings } from "@/lib/settings";
+import { playCompletionSound } from "@/lib/sound";
 
 // Three tabs instead of one long scrolling page: seeing everything at
 // once tends to overwhelm people with ADHD more than it helps them, so
@@ -75,6 +79,17 @@ const ONBOARDING_SEEN_KEY = "aidhd:seenTimeLearningIntro";
 // not on sign-in, where the ask would have no context. Per-browser since
 // Notification.permission itself is per-browser too.
 const REMINDER_PROMPT_SEEN_KEY = "aidhd:seenReminderPrompt";
+
+// Maps the camelCase keys Settings.js works with to their snake_case
+// profiles-table columns, for persisting a settings change.
+const SETTINGS_DB_COLUMNS = {
+  theme: "theme",
+  accentColor: "accent_color",
+  textSize: "text_size",
+  reduceMotion: "reduce_motion",
+  completionSoundEnabled: "completion_sound_enabled",
+  taskDensity: "task_density",
+};
 
 function checkFirstTimeOnboarding() {
   if (typeof window === "undefined") return false;
@@ -119,6 +134,11 @@ export default function Dashboard({ userId, name }) {
   const [welcomeBack] = useState(checkReturningAfterGap);
   const [showOnboarding, setShowOnboarding] = useState(checkFirstTimeOnboarding);
   const [calendarView, setCalendarView] = useState("day"); // "day" | "month"
+  // Focus mode: deliberately not persisted anywhere (state, localStorage,
+  // or the profile) — it's a moment-to-moment "just this one thing right
+  // now" toggle, not a standing preference, so it always resets to the
+  // full list on a fresh load.
+  const [focusMode, setFocusMode] = useState(false);
   const [activeTab, setActiveTab] = useState("dump"); // "dump" | "plan" | "wind-down"
   const [monthDate, setMonthDate] = useState(new Date());
   const [timeQueue, setTimeQueue] = useState([]); // items needing a start/end time
@@ -129,6 +149,7 @@ export default function Dashboard({ userId, name }) {
   const [profile, setProfile] = useState(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [editingPreferences, setEditingPreferences] = useState(false);
+  const [editingSettings, setEditingSettings] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState(null); // { conflicts, date, proceed }
 
   // Checks a candidate time range against that date's existing events
@@ -226,6 +247,18 @@ export default function Dashboard({ userId, name }) {
   );
   const dayBounds = useMemo(() => getDayBounds(selectedDate, profile), [selectedDate, profile]);
   const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate, dayBounds);
+  const nextTask = pickNextTask(scheduled);
+
+  // Display/accessibility settings (theme, accent, text size, motion,
+  // sound, density) — see lib/settings.js and components/Settings.js.
+  // Kept in sync with <html>'s data-* attributes and the localStorage
+  // cache every time the underlying profile fields change, not just on
+  // first load, so a change made in Settings applies immediately.
+  const settings = useMemo(() => pickSettings(profile), [profile]);
+  useEffect(() => {
+    applySettingsToDocument(settings);
+    cacheSettings(settings);
+  }, [settings]);
 
   // Reminders: everything below is client-side only (setTimeout-driven),
   // see lib/reminders.js and public/sw.js for exactly why, and what
@@ -345,6 +378,23 @@ export default function Dashboard({ userId, name }) {
       }));
       try {
         await upsertProfile(supabase, userId, patch);
+      } catch (e) {
+        setError("Couldn't save that setting.");
+      }
+    },
+    [supabase, userId]
+  );
+
+  const handleUpdateSettings = useCallback(
+    async (patch) => {
+      setProfile((prev) => ({ ...prev, ...patch }));
+      const dbPatch = {};
+      for (const [key, value] of Object.entries(patch)) {
+        const column = SETTINGS_DB_COLUMNS[key];
+        if (column) dbPatch[column] = value;
+      }
+      try {
+        await upsertProfile(supabase, userId, dbPatch);
       } catch (e) {
         setError("Couldn't save that setting.");
       }
@@ -719,6 +769,7 @@ export default function Dashboard({ userId, name }) {
       const completedAt = done ? new Date().toISOString() : null;
 
       setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done, actualMinutes } : t)));
+      if (done && settings.completionSoundEnabled) playCompletionSound();
 
       try {
         await updateTask(supabase, id, {
@@ -730,7 +781,7 @@ export default function Dashboard({ userId, name }) {
         setError("Couldn't save that change.");
       }
     },
-    [tasks, supabase]
+    [tasks, supabase, settings.completionSoundEnabled]
   );
 
   const toggleStepDone = async (taskId, stepId) => {
@@ -845,7 +896,10 @@ export default function Dashboard({ userId, name }) {
               <Mic size={13} /> Lesson Recorder
             </Link>
             <button onClick={() => setEditingPreferences(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
-              <Settings size={13} /> Preferences
+              <SettingsIcon size={13} /> Preferences
+            </button>
+            <button onClick={() => setEditingSettings(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
+              <SlidersHorizontal size={13} /> Settings
             </button>
             <button onClick={handleSignOut} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
               <LogOut size={13} /> Sign out
@@ -985,11 +1039,31 @@ export default function Dashboard({ userId, name }) {
         </section>
 
         <section className="mb-10">
-          <div className="flex items-center gap-2 mb-3"><ListTree size={18} style={{ color: TOKENS.sub }} /><h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Plan for this day</h2></div>
-          {scheduled.length === 0 && <p style={{ color: TOKENS.sub, fontSize: "14px" }}>Nothing yet. Dump something above to get started.</p>}
-          <div className="flex flex-col gap-2">
-            {scheduled.map((t) => (
-              <div key={t.id} style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "12px", padding: "12px 14px" }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ListTree size={18} style={{ color: TOKENS.sub }} />
+              <h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0 }}>Plan for this day</h2>
+            </div>
+            <button
+              onClick={() => setFocusMode((v) => !v)}
+              className="flex items-center gap-1"
+              style={{
+                background: focusMode ? TOKENS.now : TOKENS.neutralBg,
+                color: focusMode ? "#fff" : TOKENS.sub,
+                border: "none", borderRadius: "999px", padding: "6px 14px", fontSize: "13px", fontWeight: 500, cursor: "pointer",
+              }}
+            >
+              <Focus size={14} /> {focusMode ? "Show full list" : "Focus mode"}
+            </button>
+          </div>
+          {(focusMode ? !nextTask : scheduled.length === 0) && (
+            <p style={{ color: TOKENS.sub, fontSize: "14px" }}>
+              {focusMode ? "Nothing to focus on right now." : "Nothing yet. Dump something above to get started."}
+            </p>
+          )}
+          <div className="flex flex-col" style={{ gap: settings.taskDensity === "compact" ? "6px" : "10px" }}>
+            {(focusMode ? (nextTask ? [nextTask] : []) : scheduled).map((t) => (
+              <div key={t.id} style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "12px", padding: settings.taskDensity === "compact" ? "8px 12px" : "12px 14px" }}>
                 <div className="flex items-start gap-3">
                   <button onClick={() => toggleTaskDone(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: "1px", color: t.done ? TOKENS.calm : TOKENS.sub }}>
                     {t.done ? <CheckCircle2 size={19} /> : <Circle size={19} />}
@@ -1134,6 +1208,14 @@ export default function Dashboard({ userId, name }) {
           remindersEnabled={remindersEnabled}
           reminderLeadMinutes={reminderLeadMinutes}
           onUpdateReminderSettings={handleUpdateReminderSettings}
+        />
+      )}
+
+      {editingSettings && (
+        <SettingsPanel
+          settings={settings}
+          onUpdate={handleUpdateSettings}
+          onClose={() => setEditingSettings(false)}
         />
       )}
 

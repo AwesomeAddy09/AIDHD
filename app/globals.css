@@ -1,8 +1,30 @@
 @import "tailwindcss";
 
+/* Light palette (default) — see lib/theme.js for how TOKENS maps to
+   these, and lib/settings.js for how data-theme/data-accent get set. */
 :root {
-  --background: #f1f3ee;
-  --foreground: #20241e;
+  --bg: #F1F3EE;
+  --card: #FFFFFF;
+  --ink: #20241E;
+  --sub: #6D6C61;
+  --border: #DEDACC;
+  --now: #D98E2B;
+  --now-bg: #F7E7C6;
+  --now-text: #7A4C13;
+  --calm: #3F6B4E;
+  --calm-bg: #DCE7DC;
+  --calm-text: #24402E;
+  --overflow: #B85433;
+  --overflow-bg: #F3DDD1;
+  --neutral-bg: #EAE7DC;
+  --neutral-text: #6D6C61;
+  --event: #5B7C99;
+  --event-bg: #DDE6ED;
+  --event-text: #2E4A5E;
+
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --zoom-scale: 1;
 }
 
 @theme inline {
@@ -10,6 +32,86 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-body);
   --font-serif: var(--font-display);
+}
+
+/* Dark palette: applied when the system prefers dark and there's no
+   explicit override, or when the user explicitly chose dark. Kept as
+   two blocks (media query for the "system" case pre-JS, explicit
+   attribute for JS-resolved / manual choice) so both agree. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1A1B17;
+    --card: #24261F;
+    --ink: #EDEAE0;
+    --sub: #9C9A8C;
+    --border: #3A3C33;
+    --now: #E3A448;
+    --now-bg: #4A3A1C;
+    --now-text: #F4D9A8;
+    --calm: #5C9271;
+    --calm-bg: #24382C;
+    --calm-text: #A8D4B8;
+    --overflow: #D97B57;
+    --overflow-bg: #3D2620;
+    --neutral-bg: #2C2E27;
+    --neutral-text: #9C9A8C;
+    --event: #7FA3C7;
+    --event-bg: #24313D;
+    --event-text: #B8D0E5;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1A1B17;
+  --card: #24261F;
+  --ink: #EDEAE0;
+  --sub: #9C9A8C;
+  --border: #3A3C33;
+  --now: #E3A448;
+  --now-bg: #4A3A1C;
+  --now-text: #F4D9A8;
+  --calm: #5C9271;
+  --calm-bg: #24382C;
+  --calm-text: #A8D4B8;
+  --overflow: #D97B57;
+  --overflow-bg: #3D2620;
+  --neutral-bg: #2C2E27;
+  --neutral-text: #9C9A8C;
+  --event: #7FA3C7;
+  --event-bg: #24313D;
+  --event-text: #B8D0E5;
+}
+
+/* Accent presets — only ever repaint --now/--now-bg/--now-text, the
+   app's single primary-accent token. Light values first, then their
+   dark-mode counterparts (higher-specificity compound selectors, so
+   these correctly win over the plain dark-theme block above). */
+:root[data-accent="teal"] { --now: #3E8C82; --now-bg: #D9EEEA; --now-text: #1F4B45; }
+:root[data-accent="blue"] { --now: #4C6FA5; --now-bg: #DEE6F2; --now-text: #24395C; }
+
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="teal"]:not([data-theme="light"]) { --now: #5FBBAF; --now-bg: #1D3B37; --now-text: #B5E8E0; }
+  :root[data-accent="blue"]:not([data-theme="light"]) { --now: #7B9FD6; --now-bg: #263752; --now-text: #C5D6F0; }
+}
+:root[data-theme="dark"][data-accent="teal"] { --now: #5FBBAF; --now-bg: #1D3B37; --now-text: #B5E8E0; }
+:root[data-theme="dark"][data-accent="blue"] { --now: #7B9FD6; --now-bg: #263752; --now-text: #C5D6F0; }
+
+/* Text size: the app's inline styles are all hardcoded px, not rem, so
+   a root font-size change wouldn't cascade to them — zoom scales real
+   layout (unlike transform:scale, it doesn't break click hit-testing)
+   and is now supported across current Chrome/Edge/Safari/Firefox. */
+:root[data-text-size="small"] { --zoom-scale: 0.9; }
+:root[data-text-size="large"] { --zoom-scale: 1.15; }
+body { zoom: var(--zoom-scale); }
+
+/* Reduce motion: a blanket kill-switch rather than hunting down every
+   animation/transition individually. */
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }
 
 body {

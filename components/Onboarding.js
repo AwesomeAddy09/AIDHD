@@ -99,15 +99,24 @@ export default function Onboarding({
     goNext();
   };
 
-  const wrap = {
+  // The welcome flash is a deliberate brief, centered moment — everything
+  // else is real content, which should sit near the top instead of
+  // floating in the middle of a mostly-empty screen.
+  const wrapCentered = {
     position: "fixed", inset: 0, background: TOKENS.bg,
     display: "flex", alignItems: "center", justifyContent: "center",
     padding: "24px", zIndex: 60,
   };
+  const wrapTop = {
+    position: "fixed", inset: 0, background: TOKENS.bg,
+    display: "flex", flexDirection: "column", alignItems: "center",
+    padding: "24px", paddingTop: "64px", gap: "14px",
+    zIndex: 60, overflowY: "auto",
+  };
 
   if (stage === "welcome") {
     return (
-      <div style={wrap} onClick={skipWelcome}>
+      <div style={wrapCentered} onClick={skipWelcome}>
         <div style={{ textAlign: "center", opacity: welcomeVisible ? 1 : 0, transition: "opacity 500ms ease" }}>
           <h1 style={{ fontFamily: "var(--font-display), serif", fontWeight: 600, fontSize: "32px", margin: 0 }}>
             Welcome{name ? `, ${name}` : ""}.
@@ -119,7 +128,7 @@ export default function Onboarding({
 
   if (stage === "intro") {
     return (
-      <div style={wrap}>
+      <div style={wrapTop}>
         <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "28px", width: "400px", maxWidth: "100%", boxSizing: "border-box", textAlign: "center" }}>
           <h2 style={{ fontFamily: "var(--font-display), serif", fontWeight: 600, fontSize: "22px", margin: "0 0 12px" }}>
             A few quick questions
@@ -152,7 +161,7 @@ export default function Onboarding({
   const isLast = stepIndex === QUESTIONS.length - 1;
 
   return (
-    <div style={{ ...wrap, flexDirection: "column", gap: "14px" }}>
+    <div style={wrapTop}>
       {isEdit && (
         <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "20px 28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}>
           <div style={{ fontSize: "14px", fontWeight: 500, margin: "0 0 12px" }}>Reminders</div>

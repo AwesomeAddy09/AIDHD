@@ -19,9 +19,34 @@ export const metadata = {
   description: "An AI assistant that handles executive function for people with ADHD.",
 };
 
+// Runs before hydration/paint so returning visitors don't see a flash of
+// the default theme before their saved one applies — reads the
+// localStorage cache written by lib/settings.js, not the server profile
+// (that arrives later and reconciles normally).
+const THEME_INIT_SCRIPT = `
+(function () {
+  try {
+    var raw = localStorage.getItem("aidhd:settings");
+    var s = raw ? JSON.parse(raw) : {};
+    var theme = s.theme || "system";
+    if (theme === "system") {
+      theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    var root = document.documentElement;
+    root.dataset.theme = theme;
+    root.dataset.accent = s.accentColor || "amber";
+    root.dataset.textSize = s.textSize || "medium";
+    if (s.reduceMotion) root.dataset.motion = "reduce";
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${ibmPlexSans.variable}`}>
+    <html lang="en" className={`${fraunces.variable} ${ibmPlexSans.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

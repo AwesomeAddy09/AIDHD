@@ -90,9 +90,9 @@ export default function LoginPage() {
         fontFamily: "var(--font-body), sans-serif",
         color: TOKENS.ink,
         display: "flex",
-        alignItems: "center",
         justifyContent: "center",
         padding: "16px",
+        paddingTop: "min(15vh, 96px)",
         boxSizing: "border-box",
       }}
     >

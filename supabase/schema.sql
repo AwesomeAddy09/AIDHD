@@ -94,6 +94,14 @@ alter table public.profiles add column if not exists recorder_consent_ack_at tim
 alter table public.profiles add column if not exists reminders_enabled boolean not null default true;
 alter table public.profiles add column if not exists reminder_lead_minutes smallint not null default 10;
 
+-- Display/accessibility settings. See lib/settings.js and components/Settings.js.
+alter table public.profiles add column if not exists theme text not null default 'system';
+alter table public.profiles add column if not exists accent_color text not null default 'amber';
+alter table public.profiles add column if not exists text_size text not null default 'medium';
+alter table public.profiles add column if not exists reduce_motion boolean not null default false;
+alter table public.profiles add column if not exists completion_sound_enabled boolean not null default true;
+alter table public.profiles add column if not exists task_density text not null default 'comfortable';
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists recordings_user_id_idx on public.recordings (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);
