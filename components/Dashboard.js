@@ -4,17 +4,18 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil, Settings,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
 import {
   CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks, describeDate,
+  timeStrToMinutes, getDayBounds,
 } from "@/lib/scheduling";
 import {
   fetchTasks, insertTasks, updateTask, deleteTask, startTask,
   fetchEventsByDate, insertEvent, insertEvents, updateEvent, deleteEvent,
-  fetchRecap, upsertRecap,
+  fetchRecap, upsertRecap, fetchProfile, upsertProfile,
 } from "@/lib/data";
 import { computeCategoryMultipliers, applyLearnedEstimates } from "@/lib/learning";
 import TimePromptModal from "@/components/TimePromptModal";
@@ -23,11 +24,7 @@ import MonthCalendar from "@/components/MonthCalendar";
 import EditTaskModal from "@/components/EditTaskModal";
 import EditEventModal from "@/components/EditEventModal";
 import ClarifyModal from "@/components/ClarifyModal";
-
-function timeStrToMinutes(hhmm) {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
+import Onboarding from "@/components/Onboarding";
 
 // Shame-free design principle (see CLAUDE.md): someone returning after a
 // gap gets a plain, warm acknowledgment — never a pileup of what they
@@ -106,16 +103,22 @@ export default function Dashboard({ userId, name }) {
   const [editingTask, setEditingTask] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null); // { event, date }
   const [clarifyQueue, setClarifyQueue] = useState([]); // ambiguous edit/delete/complete requests
+  const [profile, setProfile] = useState(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [editingPreferences, setEditingPreferences] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const [taskRows, events] = await Promise.all([
+        const [taskRows, events, profileRow] = await Promise.all([
           fetchTasks(supabase),
           fetchEventsByDate(supabase),
+          fetchProfile(supabase),
         ]);
         setTasks(taskRows);
         setEventsByDate(events);
+        setProfile(profileRow);
+        if (!profileRow || !profileRow.onboardingCompleted) setNeedsOnboarding(true);
         const today = dateKey(new Date());
         const todaysRecap = await fetchRecap(supabase, today);
         if (todaysRecap) setRecap(todaysRecap);
@@ -133,6 +136,47 @@ export default function Dashboard({ userId, name }) {
     router.refresh();
   };
 
+  const handleOnboardingComplete = useCallback(
+    async (answers) => {
+      let sleep = { weekdayBedtime: null, weekdayWake: null, weekendBedtime: null, weekendWake: null };
+      if (answers.sleepAnswer && answers.sleepAnswer.trim()) {
+        try {
+          sleep = await postJson("/api/onboarding", { answer: answers.sleepAnswer });
+        } catch (e) {
+          // Best-effort personalization. Not worth blocking on if it fails.
+        }
+      }
+      const patch = {
+        weekday_bedtime: sleep.weekdayBedtime,
+        weekday_wake: sleep.weekdayWake,
+        weekend_bedtime: sleep.weekendBedtime,
+        weekend_wake: sleep.weekendWake,
+        adhd_type: answers.adhdType ?? null,
+        focus_times: answers.focusTimes || null,
+        start_difficulty: answers.startDifficulty || null,
+        onboarding_completed: true,
+      };
+      try {
+        await upsertProfile(supabase, userId, patch);
+      } catch (e) {
+        setError("Couldn't save those answers, but you can try again anytime from Preferences.");
+      }
+      setProfile({
+        weekdayBedtime: patch.weekday_bedtime,
+        weekdayWake: patch.weekday_wake,
+        weekendBedtime: patch.weekend_bedtime,
+        weekendWake: patch.weekend_wake,
+        adhdType: patch.adhd_type,
+        focusTimes: patch.focus_times,
+        startDifficulty: patch.start_difficulty,
+        onboardingCompleted: true,
+      });
+      setNeedsOnboarding(false);
+      setEditingPreferences(false);
+    },
+    [supabase, userId]
+  );
+
   const dKey = dateKey(selectedDate);
   const dayEvents = eventsByDate[dKey] || [];
   const categoryMultipliers = useMemo(() => computeCategoryMultipliers(tasks), [tasks]);
@@ -140,7 +184,8 @@ export default function Dashboard({ userId, name }) {
     () => applyLearnedEstimates(tasks, categoryMultipliers),
     [tasks, categoryMultipliers]
   );
-  const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate);
+  const dayBounds = useMemo(() => getDayBounds(selectedDate, profile), [selectedDate, profile]);
+  const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate, dayBounds);
 
   const shiftDay = (delta) => {
     const d = new Date(selectedDate);
@@ -257,7 +302,7 @@ export default function Dashboard({ userId, name }) {
         modifications.length === 0 &&
         clarifications.length === 0
       ) {
-        setError("Didn't find anything actionable in that — try adding a bit more detail.");
+        setError("Didn't find anything actionable in that. Try adding a bit more detail.");
         return;
       }
 
@@ -305,7 +350,7 @@ export default function Dashboard({ userId, name }) {
             : sorted.length === 1
               ? describeDate(sorted[0])
               : `${sorted.slice(0, -1).map(describeDate).join(", ")} and ${describeDate(sorted[sorted.length - 1])}`;
-        setNotice(`Added — some of this is scheduled for ${list}.`);
+        setNotice(`Added. Some of this is scheduled for ${list}.`);
       }
 
       if (newNeedsTime.length > 0) {
@@ -571,6 +616,10 @@ export default function Dashboard({ userId, name }) {
     );
   }
 
+  if (needsOnboarding) {
+    return <Onboarding name={name} onComplete={handleOnboardingComplete} />;
+  }
+
   return (
     <div style={{ background: TOKENS.bg, minHeight: "100vh", fontFamily: "var(--font-body), sans-serif", color: TOKENS.ink }}>
       <div className="mx-auto max-w-2xl px-5 py-10">
@@ -580,13 +629,18 @@ export default function Dashboard({ userId, name }) {
             <h1 style={{ fontFamily: "var(--font-display), serif", fontWeight: 600, fontSize: "32px", letterSpacing: "-0.01em", margin: 0 }}>aidhd.</h1>
             <p style={{ color: TOKENS.sub, fontSize: "15px", marginTop: "4px" }}>
               {welcomeBack
-                ? `Welcome back, ${name}. No need to catch up on everything at once — just pick up wherever feels right.`
+                ? `Welcome back, ${name}. No need to catch up on everything at once, just pick up wherever feels right.`
                 : `Hi ${name}. Stop thinking. Start doing.`}
             </p>
           </div>
-          <button onClick={handleSignOut} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer", marginTop: "6px" }}>
-            <LogOut size={13} /> Sign out
-          </button>
+          <div className="flex flex-col items-end gap-2" style={{ marginTop: "6px" }}>
+            <button onClick={() => setEditingPreferences(true)} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
+              <Settings size={13} /> Preferences
+            </button>
+            <button onClick={handleSignOut} className="flex items-center gap-1" style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer" }}>
+              <LogOut size={13} /> Sign out
+            </button>
+          </div>
         </header>
 
         {error && (
@@ -606,7 +660,7 @@ export default function Dashboard({ userId, name }) {
         {showOnboarding && (
           <div className="mb-6 flex items-start justify-between gap-3" style={{ background: TOKENS.neutralBg, color: TOKENS.ink, borderRadius: "10px", padding: "12px 14px", fontSize: "13px", lineHeight: 1.5 }}>
             <span>
-              One thing worth knowing: aidhd gets better at estimating how long things take <em>you</em> specifically, the more you use it. For the first couple of weeks it&apos;s just learning — treat early estimates as a first guess, not a verdict.
+              One thing worth knowing: aidhd gets better at estimating how long things take <em>you</em> specifically, the more you use it. For the first couple of weeks it&apos;s just learning. Treat early estimates as a first guess, not a verdict.
             </span>
             <button onClick={() => setShowOnboarding(false)} style={{ background: "none", border: "none", color: TOKENS.neutralText, cursor: "pointer", flexShrink: 0 }}><X size={16} /></button>
           </div>
@@ -810,6 +864,16 @@ export default function Dashboard({ userId, name }) {
           item={clarifyQueue[0]}
           onChoose={handleClarifyChoose}
           onSkip={handleClarifySkip}
+        />
+      )}
+
+      {editingPreferences && (
+        <Onboarding
+          name={name}
+          isEdit
+          initialProfile={profile}
+          onComplete={handleOnboardingComplete}
+          onCancel={() => setEditingPreferences(false)}
         />
       )}
 

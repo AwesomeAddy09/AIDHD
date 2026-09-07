@@ -53,6 +53,24 @@ create table if not exists public.api_usage (
   created_at timestamptz not null default now()
 );
 
+-- Onboarding questionnaire answers, used to personalize scheduling (day
+-- boundaries derived from sleep schedule) and Claude prompt context
+-- (organize/breakdown/recap). All fields nullable since every question
+-- is skippable. See components/Onboarding.js and lib/scheduling.js.
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  weekday_bedtime time,
+  weekday_wake time,
+  weekend_bedtime time,
+  weekend_wake time,
+  adhd_type smallint,
+  focus_times text,
+  start_difficulty text,
+  onboarding_completed boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);
 create index if not exists recaps_user_id_date_idx on public.recaps (user_id, recap_date);
@@ -67,11 +85,13 @@ grant select, insert, update, delete on public.tasks to anon, authenticated;
 grant select, insert, update, delete on public.events to anon, authenticated;
 grant select, insert, update, delete on public.recaps to anon, authenticated;
 grant select, insert on public.api_usage to anon, authenticated;
+grant select, insert, update on public.profiles to anon, authenticated;
 
 alter table public.tasks enable row level security;
 alter table public.events enable row level security;
 alter table public.recaps enable row level security;
 alter table public.api_usage enable row level security;
+alter table public.profiles enable row level security;
 
 create policy "tasks: owner read" on public.tasks for select using (auth.uid() = user_id);
 create policy "tasks: owner insert" on public.tasks for insert with check (auth.uid() = user_id);
@@ -90,3 +110,7 @@ create policy "recaps: owner delete" on public.recaps for delete using (auth.uid
 
 create policy "api_usage: owner read" on public.api_usage for select using (auth.uid() = user_id);
 create policy "api_usage: owner insert" on public.api_usage for insert with check (auth.uid() = user_id);
+
+create policy "profiles: owner read" on public.profiles for select using (auth.uid() = user_id);
+create policy "profiles: owner insert" on public.profiles for insert with check (auth.uid() = user_id);
+create policy "profiles: owner update" on public.profiles for update using (auth.uid() = user_id);

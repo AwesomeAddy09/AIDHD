@@ -25,7 +25,7 @@ export default function AmPmPromptModal({ item, onChoose, onSkip }) {
           </button>
         </div>
         <p style={{ fontSize: "14px", color: TOKENS.sub, margin: "0 0 18px" }}>
-          &quot;{item.text}&quot; at {item.hour}:{item.minute.toString().padStart(2, "0")} — morning or afternoon/evening?
+          &quot;{item.text}&quot; at {item.hour}:{item.minute.toString().padStart(2, "0")}. Morning or afternoon/evening?
         </p>
 
         <div className="flex items-center gap-2 mb-2">

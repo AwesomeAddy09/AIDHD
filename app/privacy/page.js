@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TOKENS } from "@/lib/theme";
 
 export const metadata = {
-  title: "Privacy — aidhd.",
+  title: "Privacy, aidhd.",
 };
 
 export default function PrivacyPage() {
@@ -22,19 +22,19 @@ export default function PrivacyPage() {
 
         <div style={{ background: TOKENS.neutralBg, color: TOKENS.ink, borderRadius: "10px", padding: "14px 16px", fontSize: "14px", lineHeight: 1.6, marginBottom: "28px" }}>
           aidhd is currently in early testing. This page is a plain-language summary of how your
-          data is handled — it&apos;s not a substitute for a full legal privacy policy, which we&apos;ll put
+          data is handled. It&apos;s not a substitute for a full legal privacy policy, which we&apos;ll put
           in place before any wider release.
         </div>
 
         <Section title="What we store">
           <ul style={list}>
             <li>Your name and email address, used to sign you in</li>
-            <li>The tasks you create — their text, category, time estimate, and completion status</li>
-            <li>Calendar events you add — title and time</li>
+            <li>The tasks you create: their text, category, time estimate, and completion status</li>
+            <li>Calendar events you add: title and time</li>
             <li>Your nightly recaps</li>
             <li>
               If you use the optional &quot;Start&quot; button on a task, when you started and
-              finished it — this is what lets the app learn your patterns over time
+              finished it. This is what lets the app learn your patterns over time
             </li>
           </ul>
         </Section>
@@ -50,7 +50,7 @@ export default function PrivacyPage() {
         <Section title="What we send to Claude (Anthropic)">
           <p style={para}>
             When you organize a brain dump, break down a task, or generate a nightly recap, the
-            relevant text is sent to Anthropic&apos;s Claude API to process it — that&apos;s what
+            relevant text is sent to Anthropic&apos;s Claude API to process it. That&apos;s what
             actually does the organizing. It&apos;s sent directly from our server, and Anthropic&apos;s
             API doesn&apos;t use it to train their models.
           </p>
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
           <ul style={list}>
             <li>We don&apos;t sell your data</li>
             <li>We don&apos;t share it with advertisers or other third parties</li>
-            <li>We don&apos;t use tracking or analytics cookies — only the one essential cookie that keeps you signed in</li>
+            <li>We don&apos;t use tracking or analytics cookies, only the one essential cookie that keeps you signed in</li>
           </ul>
         </Section>
 

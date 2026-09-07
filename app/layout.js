@@ -15,7 +15,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata = {
-  title: "aidhd. — Stop thinking. Start doing.",
+  title: "aidhd. Stop thinking. Start doing.",
   description: "An AI assistant that handles executive function for people with ADHD.",
 };
 

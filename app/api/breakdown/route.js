@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude, parseJsonLoose } from "@/lib/anthropic";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { buildPersonalizationContext } from "@/lib/profileContext";
 
 export async function POST(req) {
   const supabase = await createClient();
@@ -14,7 +15,7 @@ export async function POST(req) {
 
   const allowed = await checkRateLimit(supabase, user.id, "breakdown", { limit: 15, windowSeconds: 60 });
   if (!allowed) {
-    return NextResponse.json({ error: "Slow down a little — try again in a minute." }, { status: 429 });
+    return NextResponse.json({ error: "Slow down a little, try again in a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);
@@ -24,8 +25,9 @@ export async function POST(req) {
   }
 
   try {
+    const context = await buildPersonalizationContext(supabase);
     const text = await callClaude(
-      "You help someone with ADHD who feels stuck starting a task. Return ONLY valid JSON, no markdown fences: an array of 3 to 6 short strings, each a concrete tiny next physical action, ordered, small enough that starting feels easy.",
+      `You help someone with ADHD who feels stuck starting a task. Return ONLY valid JSON, no markdown fences: an array of 3 to 6 short strings, each a concrete tiny next physical action, ordered, small enough that starting feels easy. Do not use em dashes.${context}`,
       taskText
     );
     const parsed = parseJsonLoose(text);

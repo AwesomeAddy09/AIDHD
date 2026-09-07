@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude, parseJsonLoose } from "@/lib/anthropic";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { buildPersonalizationContext } from "@/lib/profileContext";
 
 const VALID_CATEGORIES = new Set(["work", "personal", "errand", "health", "admin"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -96,7 +97,7 @@ export async function POST(req) {
 
   const allowed = await checkRateLimit(supabase, user.id, "organize", { limit: 8, windowSeconds: 60 });
   if (!allowed) {
-    return NextResponse.json({ error: "Slow down a little — try again in a minute." }, { status: 429 });
+    return NextResponse.json({ error: "Slow down a little, try again in a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);
@@ -106,7 +107,7 @@ export async function POST(req) {
   }
   if (dump.length > 6000) {
     return NextResponse.json(
-      { error: "That's a lot to sort at once — try a shorter dump" },
+      { error: "That's a lot to sort at once, try a shorter dump" },
       { status: 400 }
     );
   }
@@ -146,7 +147,7 @@ export async function POST(req) {
     (existingTasks || []).map((t) => [t.id, `${t.text} (due ${t.due_date || "no date"})`])
   );
   const eventLabels = new Map(
-    (existingEvents || []).map((e) => [e.id, `${e.text} — ${e.event_date}, ${minutesToLabel(e.start_min)}–${minutesToLabel(e.end_min)}`])
+    (existingEvents || []).map((e) => [e.id, `${e.text} (${e.event_date}, ${minutesToLabel(e.start_min)} to ${minutesToLabel(e.end_min)})`])
   );
 
   try {
@@ -201,7 +202,7 @@ Return ONLY valid JSON, no markdown fences: an object with three keys, "items", 
 - changes: only for "update" — same shape as above
 - candidateIds: array of 2-4 exact id strings from the EXISTING lists above that could plausibly be meant — never invent one
 
-Do not invent items not implied by the input.`,
+Do not invent items not implied by the input. Do not use em dashes in any text fields.`,
       dump,
       2000
     );

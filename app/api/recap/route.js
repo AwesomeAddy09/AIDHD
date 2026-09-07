@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude } from "@/lib/anthropic";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { buildPersonalizationContext } from "@/lib/profileContext";
 
 export async function POST(req) {
   const supabase = await createClient();
@@ -14,7 +15,7 @@ export async function POST(req) {
 
   const allowed = await checkRateLimit(supabase, user.id, "recap", { limit: 5, windowSeconds: 60 });
   if (!allowed) {
-    return NextResponse.json({ error: "Slow down a little — try again in a minute." }, { status: 429 });
+    return NextResponse.json({ error: "Slow down a little, try again in a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);
@@ -22,8 +23,9 @@ export async function POST(req) {
   const remaining = Array.isArray(body?.remaining) ? body.remaining : [];
 
   try {
+    const context = await buildPersonalizationContext(supabase);
     const text = await callClaude(
-      "You write brief, warm, non-judgmental end-of-day recaps for an ADHD productivity app. Write two short paragraphs: first acknowledging today honestly and kindly, no guilt, no hype. Second previewing what's left simply. Plain text only, under 120 words total.",
+      `You write brief, warm, non-judgmental end-of-day recaps for an ADHD productivity app. Write two short paragraphs: first acknowledging today honestly and kindly, no guilt, no hype. Second previewing what's left simply. Plain text only, under 120 words total. Do not use em dashes.${context}`,
       `Completed today: ${completed.join(", ") || "nothing marked done"}.\nStill open: ${
         remaining.join(", ") || "nothing left"
       }.`

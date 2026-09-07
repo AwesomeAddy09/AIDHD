@@ -43,7 +43,7 @@ export default function TimePromptModal({ item, onSave, onSkip }) {
           </button>
         </div>
         <p style={{ fontSize: "14px", color: TOKENS.sub, margin: "0 0 18px" }}>
-          &quot;{item.text}&quot; sounds like it has a set time — when is it?
+          &quot;{item.text}&quot; sounds like it has a set time. When is it?
         </p>
 
         <TimeField label="Start time" {...start} onChange={setStart} />
