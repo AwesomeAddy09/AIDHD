@@ -9,7 +9,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
 import {
-  CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks,
+  CATEGORY_LABEL, DAY_NAMES, dateKey, isToday, minsToLabel, scheduleTasks, describeDate,
 } from "@/lib/scheduling";
 import {
   fetchTasks, insertTasks, updateTask, deleteTask, startTask,
@@ -85,6 +85,7 @@ export default function Dashboard({ userId, name }) {
   const [recapLoading, setRecapLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [welcomeBack] = useState(checkReturningAfterGap);
   const [showOnboarding, setShowOnboarding] = useState(checkFirstTimeOnboarding);
 
@@ -133,14 +134,56 @@ export default function Dashboard({ userId, name }) {
     if (!dump.trim()) return;
     setOrganizing(true);
     setError("");
+    setNotice("");
     try {
-      const { tasks: newTaskDrafts } = await postJson("/api/organize", { dump });
-      if (newTaskDrafts.length === 0) {
+      const { tasks: newTaskDrafts, events: newEventDrafts } = await postJson("/api/organize", {
+        dump,
+        today: dateKey(new Date()),
+      });
+
+      if (newTaskDrafts.length === 0 && newEventDrafts.length === 0) {
         setError("Didn't find anything actionable in that — try adding a bit more detail.");
         return;
       }
-      const inserted = await insertTasks(supabase, userId, newTaskDrafts);
-      setTasks((prev) => [...prev, ...inserted]);
+
+      if (newTaskDrafts.length > 0) {
+        const inserted = await insertTasks(supabase, userId, newTaskDrafts);
+        setTasks((prev) => [...prev, ...inserted]);
+      }
+
+      const todayKey = dateKey(new Date());
+      const laterDates = new Set();
+
+      if (newEventDrafts.length > 0) {
+        const savedByDate = {};
+        for (const draft of newEventDrafts) {
+          const saved = await insertEvent(supabase, userId, draft.date, draft);
+          (savedByDate[draft.date] ??= []).push(saved);
+          if (draft.date !== todayKey) laterDates.add(draft.date);
+        }
+        setEventsByDate((prev) => {
+          const next = { ...prev };
+          for (const [date, evs] of Object.entries(savedByDate)) {
+            next[date] = [...(next[date] || []), ...evs];
+          }
+          return next;
+        });
+      }
+      for (const t of newTaskDrafts) {
+        if (t.date && t.date !== todayKey) laterDates.add(t.date);
+      }
+
+      // Something scheduled for later won't show up on today's plan —
+      // say so, so it doesn't look like it silently vanished.
+      if (laterDates.size > 0) {
+        const described = [...laterDates].sort().map(describeDate);
+        const list =
+          described.length === 1
+            ? described[0]
+            : `${described.slice(0, -1).join(", ")} and ${described[described.length - 1]}`;
+        setNotice(`Added — some of this is scheduled for ${list}.`);
+      }
+
       setDump("");
     } catch (e) {
       setError(e.message || "Couldn't organize that. Try again in a moment.");
@@ -315,6 +358,13 @@ export default function Dashboard({ userId, name }) {
           <div className="mb-6 flex items-center justify-between" style={{ background: TOKENS.overflowBg, color: TOKENS.overflow, borderRadius: "10px", padding: "10px 14px", fontSize: "14px" }}>
             <span>{error}</span>
             <button onClick={() => setError("")} style={{ background: "none", border: "none", color: TOKENS.overflow, cursor: "pointer" }}><X size={16} /></button>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mb-6 flex items-center justify-between" style={{ background: TOKENS.calmBg, color: TOKENS.calmText, borderRadius: "10px", padding: "10px 14px", fontSize: "14px" }}>
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} style={{ background: "none", border: "none", color: TOKENS.calmText, cursor: "pointer" }}><X size={16} /></button>
           </div>
         )}
 

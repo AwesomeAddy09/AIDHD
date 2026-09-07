@@ -18,7 +18,11 @@ create table if not exists public.tasks (
   -- a real timing data point rather than a guess. See lib/learning.js.
   started_at timestamptz,
   completed_at timestamptz,
-  actual_minutes integer
+  actual_minutes integer,
+  -- Null means "whenever" (the original behavior — eligible for any day).
+  -- Set means the task won't appear before this date; once it arrives it
+  -- competes for that day's plan like anything else. See lib/scheduling.js.
+  due_date date
 );
 
 create table if not exists public.events (
