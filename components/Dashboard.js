@@ -684,7 +684,7 @@ export default function Dashboard({ userId, name }) {
             <p style={{ color: TOKENS.sub, fontSize: "15px", marginTop: "4px" }}>
               {welcomeBack
                 ? `Welcome back, ${name}. No need to catch up on everything at once, just pick up wherever feels right.`
-                : `Hi ${name}. Stop thinking. Start doing.`}
+                : `Stop thinking. Start doing.`}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2" style={{ marginTop: "6px" }}>

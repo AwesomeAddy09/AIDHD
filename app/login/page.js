@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -14,6 +14,38 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [devCreds, setDevCreds] = useState(null); // { email, password }, only ever set outside production
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/dev-login")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setDevCreds(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signInAsAdminTest = async () => {
+    if (!devCreds) return;
+    setError("");
+    setNotice("");
+    setLoading(true);
+    const supabase = createClient();
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword(devCreds);
+      if (signInError) throw signInError;
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setError(err.message || "Something went wrong. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -175,6 +207,26 @@ export default function LoginPage() {
         >
           {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
         </button>
+
+        {devCreds && (
+          <button
+            onClick={signInAsAdminTest}
+            disabled={loading}
+            style={{
+              marginTop: "14px",
+              width: "100%",
+              background: "none",
+              border: `1px dashed ${TOKENS.border}`,
+              color: TOKENS.sub,
+              borderRadius: "8px",
+              padding: "8px",
+              fontSize: "12px",
+              cursor: loading ? "default" : "pointer",
+            }}
+          >
+            Administrator test account (dev only)
+          </button>
+        )}
 
         <a href="/privacy" style={{ display: "block", textAlign: "center", marginTop: "10px", color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>
           Privacy
