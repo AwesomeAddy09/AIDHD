@@ -175,6 +175,10 @@ export default function LoginPage() {
         >
           {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
         </button>
+
+        <a href="/privacy" style={{ display: "block", textAlign: "center", marginTop: "10px", color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>
+          Privacy
+        </a>
       </div>
     </div>
   );

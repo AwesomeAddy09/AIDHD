@@ -453,6 +453,10 @@ export default function Dashboard({ userId, name }) {
           </button>
         </section>
 
+        <footer style={{ textAlign: "center", paddingTop: "8px" }}>
+          <a href="/privacy" style={{ color: TOKENS.sub, fontSize: "12px", textDecoration: "none" }}>Privacy</a>
+        </footer>
+
       </div>
     </div>
   );
