@@ -7,7 +7,8 @@ import TimeField, { to24h } from "@/components/TimeField";
 
 // One item at a time from a queue built in Dashboard.js. onSave receives
 // {start, end} in minutes-since-midnight; onSkip means "don't add this to
-// the calendar at all" (per the user's spec — X cancels, it isn't added).
+// the calendar" — it still gets kept as a flexible, untimed task rather
+// than disappearing.
 export default function TimePromptModal({ item, onSave, onSkip }) {
   const [start, setStart] = useState({ hour: 9, minute: 0, ampm: "AM" });
   const [end, setEnd] = useState({ hour: 9, minute: 0, ampm: "AM" });

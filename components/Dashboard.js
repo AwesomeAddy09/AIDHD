@@ -427,9 +427,20 @@ export default function Dashboard({ userId, name }) {
     [timeQueue, supabase, userId, runWithConflictCheck]
   );
 
-  const handleTimePromptSkip = useCallback(() => {
+  const handleTimePromptSkip = useCallback(async () => {
+    const item = timeQueue[0];
+    if (!item) return;
     setTimeQueue((prev) => prev.slice(1));
-  }, []);
+    try {
+      const inserted = await insertTasks(supabase, userId, [
+        { text: item.text, category: "personal", minutes: 20, priority: 2, date: item.date },
+      ]);
+      setTasks((prev) => [...prev, ...inserted]);
+      setNotice(`Kept "${item.text}" as a task without a set time.`);
+    } catch (e) {
+      setError("Couldn't save that.");
+    }
+  }, [timeQueue, supabase, userId]);
 
   const handleAmPmChoose = useCallback(
     async (ampm) => {
