@@ -49,11 +49,16 @@ function toMin(hhmm) {
   return h * 60 + m;
 }
 
+const LEAD_TIME_OPTIONS = [5, 10, 15, 20, 30, 60];
+
 // Full-takeover flow shown once after sign-up (stage starts at "welcome"),
 // or reopened later in edit mode (isEdit=true skips straight to the
 // questions, pre-filled). onComplete receives the raw answers; Dashboard
 // handles parsing the sleep answer and persisting everything.
-export default function Onboarding({ name, isEdit = false, initialProfile = null, onComplete, onCancel }) {
+export default function Onboarding({
+  name, isEdit = false, initialProfile = null, onComplete, onCancel,
+  remindersEnabled, reminderLeadMinutes, onUpdateReminderSettings,
+}) {
   const [stage, setStage] = useState(isEdit ? "questions" : "welcome");
   const [welcomeVisible, setWelcomeVisible] = useState(true);
   const [stepIndex, setStepIndex] = useState(0);
@@ -147,7 +152,40 @@ export default function Onboarding({ name, isEdit = false, initialProfile = null
   const isLast = stepIndex === QUESTIONS.length - 1;
 
   return (
-    <div style={wrap}>
+    <div style={{ ...wrap, flexDirection: "column", gap: "14px" }}>
+      {isEdit && (
+        <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "20px 28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}>
+          <div style={{ fontSize: "14px", fontWeight: 500, margin: "0 0 12px" }}>Reminders</div>
+          <div className="flex items-center justify-between" style={{ marginBottom: (remindersEnabled ?? true) ? "12px" : 0 }}>
+            <span style={{ fontSize: "13px", color: TOKENS.sub }}>Notify me before timed things start</span>
+            <button
+              onClick={() => onUpdateReminderSettings({ reminders_enabled: !(remindersEnabled ?? true) })}
+              style={{
+                background: (remindersEnabled ?? true) ? TOKENS.now : TOKENS.neutralBg,
+                color: (remindersEnabled ?? true) ? "#fff" : TOKENS.sub,
+                border: "none", borderRadius: "999px", padding: "6px 14px", fontSize: "13px", fontWeight: 500, cursor: "pointer",
+              }}
+            >
+              {(remindersEnabled ?? true) ? "On" : "Off"}
+            </button>
+          </div>
+          {(remindersEnabled ?? true) && (
+            <div className="flex items-center justify-between">
+              <span style={{ fontSize: "13px", color: TOKENS.sub }}>How much lead time</span>
+              <select
+                value={reminderLeadMinutes ?? 10}
+                onChange={(e) => onUpdateReminderSettings({ reminder_lead_minutes: Number(e.target.value) })}
+                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "6px 10px", fontSize: "13px", fontFamily: "inherit" }}
+              >
+                {LEAD_TIME_OPTIONS.map((m) => (
+                  <option key={m} value={m}>{m} minutes</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ background: TOKENS.card, borderRadius: "14px", padding: "28px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}>
         <div className="flex items-center justify-between mb-4">
           <span style={{ fontSize: "12px", color: TOKENS.sub }}>

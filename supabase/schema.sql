@@ -90,6 +90,10 @@ create table if not exists public.recordings (
 -- people may require their consent depending on where the user lives).
 alter table public.profiles add column if not exists recorder_consent_ack_at timestamptz;
 
+-- Reminder notifications for timed tasks/events. See lib/reminders.js.
+alter table public.profiles add column if not exists reminders_enabled boolean not null default true;
+alter table public.profiles add column if not exists reminder_lead_minutes smallint not null default 10;
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists recordings_user_id_idx on public.recordings (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);

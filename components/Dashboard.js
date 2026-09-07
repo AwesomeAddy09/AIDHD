@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -28,6 +28,11 @@ import EditEventModal from "@/components/EditEventModal";
 import ClarifyModal from "@/components/ClarifyModal";
 import ConflictModal from "@/components/ConflictModal";
 import Onboarding from "@/components/Onboarding";
+import ReminderPermissionBanner from "@/components/ReminderPermissionBanner";
+import {
+  notificationsSupported, registerReminderServiceWorker, requestNotificationPermission,
+  showReminderNotification, scheduleReminders, clearScheduledReminders, REMINDER_RESCAN_MS,
+} from "@/lib/reminders";
 
 // Three tabs instead of one long scrolling page: seeing everything at
 // once tends to overwhelm people with ADHD more than it helps them, so
@@ -65,6 +70,11 @@ function checkReturningAfterGap() {
 // honest expectations for the time-blindness learning feature before it
 // has any data to work with (see CLAUDE.md).
 const ONBOARDING_SEEN_KEY = "aidhd:seenTimeLearningIntro";
+
+// Shown once, the first time someone adds something with a real time —
+// not on sign-in, where the ask would have no context. Per-browser since
+// Notification.permission itself is per-browser too.
+const REMINDER_PROMPT_SEEN_KEY = "aidhd:seenReminderPrompt";
 
 function checkFirstTimeOnboarding() {
   if (typeof window === "undefined") return false;
@@ -190,7 +200,8 @@ export default function Dashboard({ userId, name }) {
       } catch (e) {
         setError("Couldn't save those answers, but you can try again anytime from Preferences.");
       }
-      setProfile({
+      setProfile((prev) => ({
+        ...prev,
         weekdayBedtime: patch.weekday_bedtime,
         weekdayWake: patch.weekday_wake,
         weekendBedtime: patch.weekend_bedtime,
@@ -199,7 +210,7 @@ export default function Dashboard({ userId, name }) {
         focusTimes: patch.focus_times,
         startDifficulty: patch.start_difficulty,
         onboardingCompleted: true,
-      });
+      }));
       setNeedsOnboarding(false);
       setEditingPreferences(false);
     },
@@ -215,6 +226,131 @@ export default function Dashboard({ userId, name }) {
   );
   const dayBounds = useMemo(() => getDayBounds(selectedDate, profile), [selectedDate, profile]);
   const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate, dayBounds);
+
+  // Reminders: everything below is client-side only (setTimeout-driven),
+  // see lib/reminders.js and public/sw.js for exactly why, and what
+  // upgrading to real background push later would involve.
+  const swRegistrationRef = useRef(null);
+  const reminderTimersRef = useRef(new Map());
+  const notifiedReminderKeysRef = useRef(new Set());
+  const [showReminderBanner, setShowReminderBanner] = useState(false);
+  const [reminderTick, setReminderTick] = useState(0);
+
+  const remindersEnabled = profile?.remindersEnabled ?? true;
+  const reminderLeadMinutes = profile?.reminderLeadMinutes ?? 10;
+
+  useEffect(() => {
+    registerReminderServiceWorker().then((reg) => {
+      swRegistrationRef.current = reg;
+    });
+    return () => clearScheduledReminders(reminderTimersRef);
+  }, []);
+
+  // Catches items that drift into the scheduling horizon purely from
+  // time passing, with no other data change to trigger a re-scan.
+  useEffect(() => {
+    const id = setInterval(() => setReminderTick((t) => t + 1), REMINDER_RESCAN_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (!remindersEnabled) {
+      clearScheduledReminders(reminderTimersRef);
+      return;
+    }
+
+    const items = [];
+    for (const [dateStr, evs] of Object.entries(eventsByDate)) {
+      const base = new Date(`${dateStr}T00:00:00`).getTime();
+      for (const e of evs) {
+        items.push({
+          key: `event-${e.id}`,
+          title: `${e.text} starts in ${reminderLeadMinutes} minute${reminderLeadMinutes === 1 ? "" : "s"}.`,
+          startAt: new Date(base + e.start * 60000),
+        });
+      }
+    }
+
+    // Tasks only ever get a real time slot via the day planner's
+    // auto-scheduling for *today* specifically (see lib/scheduling.js) —
+    // there's no persisted task-level time in the data model otherwise,
+    // so that's the only sense in which a task has a "scheduled time" to
+    // remind about. Computed independently of whatever day the Plan tab
+    // currently has selected, so merely previewing another day never
+    // schedules a real reminder for it.
+    const todayDate = new Date();
+    const todayKeyStr = dateKey(todayDate);
+    const todayBounds = getDayBounds(todayDate, profile);
+    const todaysSchedule = scheduleTasks(adjustedTasks, eventsByDate[todayKeyStr] || [], todayDate, todayBounds);
+    const todayBase = new Date(`${todayKeyStr}T00:00:00`).getTime();
+    for (const t of todaysSchedule) {
+      if (t.done || t.overflow || t.scheduledStart == null) continue;
+      items.push({
+        key: `task-${t.id}`,
+        title: `${t.text} starts in ${reminderLeadMinutes} minute${reminderLeadMinutes === 1 ? "" : "s"}.`,
+        startAt: new Date(todayBase + t.scheduledStart * 60000),
+      });
+    }
+
+    scheduleReminders({
+      items,
+      timersRef: reminderTimersRef,
+      notifiedKeysRef: notifiedReminderKeysRef,
+      leadMinutes: reminderLeadMinutes,
+      onFire: (item) => {
+        showReminderNotification(swRegistrationRef.current, { key: item.key, title: item.title });
+      },
+    });
+  }, [loaded, remindersEnabled, reminderLeadMinutes, adjustedTasks, eventsByDate, profile, reminderTick]);
+
+  // First time someone adds something with a real time attached, not on
+  // sign-in (where it'd have no context). A no-op once permission has
+  // already been decided either way, or the banner's already been seen.
+  const maybePromptForReminders = useCallback(() => {
+    if (!remindersEnabled || !notificationsSupported() || Notification.permission !== "default") return;
+    try {
+      if (localStorage.getItem(REMINDER_PROMPT_SEEN_KEY)) return;
+    } catch (e) {
+      return;
+    }
+    setShowReminderBanner(true);
+  }, [remindersEnabled]);
+
+  const handleAllowReminders = async () => {
+    setShowReminderBanner(false);
+    try {
+      localStorage.setItem(REMINDER_PROMPT_SEEN_KEY, "1");
+    } catch (e) {
+      // Private mode etc. — worst case the banner just shows again next time.
+    }
+    await requestNotificationPermission();
+  };
+
+  const handleDismissReminderBanner = () => {
+    setShowReminderBanner(false);
+    try {
+      localStorage.setItem(REMINDER_PROMPT_SEEN_KEY, "1");
+    } catch (e) {
+      // Private mode etc. — worst case the banner just shows again next time.
+    }
+  };
+
+  const handleUpdateReminderSettings = useCallback(
+    async (patch) => {
+      setProfile((prev) => ({
+        ...prev,
+        ...(patch.reminders_enabled !== undefined && { remindersEnabled: patch.reminders_enabled }),
+        ...(patch.reminder_lead_minutes !== undefined && { reminderLeadMinutes: patch.reminder_lead_minutes }),
+      }));
+      try {
+        await upsertProfile(supabase, userId, patch);
+      } catch (e) {
+        setError("Couldn't save that setting.");
+      }
+    },
+    [supabase, userId]
+  );
 
   const shiftDay = (delta) => {
     const d = new Date(selectedDate);
@@ -364,6 +500,7 @@ export default function Dashboard({ userId, name }) {
           }
           return next;
         });
+        maybePromptForReminders();
       }
       for (const t of newTaskDrafts) {
         if (t.date && t.date !== todayKey) laterDates.add(t.date);
@@ -407,7 +544,7 @@ export default function Dashboard({ userId, name }) {
     } finally {
       setOrganizing(false);
     }
-  }, [dump, supabase, userId, applyModifications]);
+  }, [dump, supabase, userId, applyModifications, maybePromptForReminders]);
 
   const handleTimePromptSave = useCallback(
     async ({ start, end }) => {
@@ -419,13 +556,14 @@ export default function Dashboard({ userId, name }) {
           const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
           setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
           setNotice(`Added "${item.text}" to your calendar for ${describeDate(item.date)}.`);
+          maybePromptForReminders();
         } catch (e) {
           setError("Couldn't add that to the calendar.");
         }
       };
       runWithConflictCheck(item.date, start, end, null, doInsert);
     },
-    [timeQueue, supabase, userId, runWithConflictCheck]
+    [timeQueue, supabase, userId, runWithConflictCheck, maybePromptForReminders]
   );
 
   const handleTimePromptSkip = useCallback(async () => {
@@ -457,13 +595,14 @@ export default function Dashboard({ userId, name }) {
           const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
           setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
           setNotice(`Added "${item.text}" to your calendar for ${describeDate(item.date)}.`);
+          maybePromptForReminders();
         } catch (e) {
           setError("Couldn't add that to the calendar.");
         }
       };
       runWithConflictCheck(item.date, start, end, null, doInsert);
     },
-    [ampmQueue, supabase, userId, runWithConflictCheck]
+    [ampmQueue, supabase, userId, runWithConflictCheck, maybePromptForReminders]
   );
 
   const handleAmPmSkip = useCallback(() => {
@@ -526,13 +665,14 @@ export default function Dashboard({ userId, name }) {
             next[date] = [...(next[date] || []), { id, text, start, end, isRecurring: editingEvent.event.isRecurring }];
             return next;
           });
+          maybePromptForReminders();
         } catch (e) {
           setError("Couldn't save those changes.");
         }
       };
       runWithConflictCheck(date, start, end, id, doUpdate);
     },
-    [editingEvent, supabase, runWithConflictCheck]
+    [editingEvent, supabase, runWithConflictCheck, maybePromptForReminders]
   );
 
   const handleBreakdown = useCallback(
@@ -633,6 +773,7 @@ export default function Dashboard({ userId, name }) {
         setEventText("");
         setEventStart("");
         setEventEnd("");
+        maybePromptForReminders();
       } catch (e) {
         setError("Couldn't add that event.");
       }
@@ -724,6 +865,10 @@ export default function Dashboard({ userId, name }) {
             <span>{notice}</span>
             <button onClick={() => setNotice("")} style={{ background: "none", border: "none", color: TOKENS.calmText, cursor: "pointer" }}><X size={16} /></button>
           </div>
+        )}
+
+        {showReminderBanner && (
+          <ReminderPermissionBanner onAllow={handleAllowReminders} onDismiss={handleDismissReminderBanner} />
         )}
 
         {showOnboarding && (
@@ -986,6 +1131,9 @@ export default function Dashboard({ userId, name }) {
           initialProfile={profile}
           onComplete={handleOnboardingComplete}
           onCancel={() => setEditingPreferences(false)}
+          remindersEnabled={remindersEnabled}
+          reminderLeadMinutes={reminderLeadMinutes}
+          onUpdateReminderSettings={handleUpdateReminderSettings}
         />
       )}
 
