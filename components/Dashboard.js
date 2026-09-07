@@ -22,6 +22,7 @@ import AmPmPromptModal from "@/components/AmPmPromptModal";
 import MonthCalendar from "@/components/MonthCalendar";
 import EditTaskModal from "@/components/EditTaskModal";
 import EditEventModal from "@/components/EditEventModal";
+import ClarifyModal from "@/components/ClarifyModal";
 
 function timeStrToMinutes(hhmm) {
   const [h, m] = hhmm.split(":").map(Number);
@@ -104,6 +105,7 @@ export default function Dashboard({ userId, name }) {
   const [ampmQueue, setAmpmQueue] = useState([]); // items needing AM/PM clarified
   const [editingTask, setEditingTask] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null); // { event, date }
+  const [clarifyQueue, setClarifyQueue] = useState([]); // ambiguous edit/delete/complete requests
 
   useEffect(() => {
     (async () => {
@@ -244,6 +246,7 @@ export default function Dashboard({ userId, name }) {
         needsTime: newNeedsTime,
         ambiguousTime: newAmbiguousTime,
         modifications,
+        clarifications,
       } = await postJson("/api/organize", { dump, today: dateKey(new Date()) });
 
       if (
@@ -251,7 +254,8 @@ export default function Dashboard({ userId, name }) {
         newEventDrafts.length === 0 &&
         newNeedsTime.length === 0 &&
         newAmbiguousTime.length === 0 &&
-        modifications.length === 0
+        modifications.length === 0 &&
+        clarifications.length === 0
       ) {
         setError("Didn't find anything actionable in that — try adding a bit more detail.");
         return;
@@ -259,6 +263,9 @@ export default function Dashboard({ userId, name }) {
 
       if (modifications.length > 0) {
         await applyModifications(modifications);
+      }
+      if (clarifications.length > 0) {
+        setClarifyQueue((prev) => [...prev, ...clarifications]);
       }
 
       if (newTaskDrafts.length > 0) {
@@ -356,6 +363,25 @@ export default function Dashboard({ userId, name }) {
 
   const handleAmPmSkip = useCallback(() => {
     setAmpmQueue((prev) => prev.slice(1));
+  }, []);
+
+  const handleClarifyChoose = useCallback(
+    async (candidateId) => {
+      const item = clarifyQueue[0];
+      if (!item) return;
+      setClarifyQueue((prev) => prev.slice(1));
+      await applyModifications([{
+        targetType: item.targetType,
+        id: candidateId,
+        action: item.action,
+        changes: item.changes,
+      }]);
+    },
+    [clarifyQueue, applyModifications]
+  );
+
+  const handleClarifySkip = useCallback(() => {
+    setClarifyQueue((prev) => prev.slice(1));
   }, []);
 
   const handleSaveTaskEdit = useCallback(
@@ -776,6 +802,14 @@ export default function Dashboard({ userId, name }) {
           item={ampmQueue[0]}
           onChoose={handleAmPmChoose}
           onSkip={handleAmPmSkip}
+        />
+      )}
+
+      {clarifyQueue.length > 0 && (
+        <ClarifyModal
+          item={clarifyQueue[0]}
+          onChoose={handleClarifyChoose}
+          onSkip={handleClarifySkip}
         />
       )}
 

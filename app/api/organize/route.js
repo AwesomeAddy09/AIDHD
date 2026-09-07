@@ -19,6 +19,31 @@ function timeToMinutes(t) {
   return h * 60 + m;
 }
 
+function sanitizeChanges(targetType, raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const changes = {};
+  if (typeof raw.text === "string") changes.text = raw.text.slice(0, 500);
+  if (targetType === "task") {
+    if (VALID_CATEGORIES.has(raw.category)) changes.category = raw.category;
+    if (Number.isFinite(raw.minutes)) changes.minutes = Math.max(1, Math.round(raw.minutes));
+    if ([1, 2, 3].includes(raw.priority)) changes.priority = raw.priority;
+    if (raw.date === null || isValidDate(raw.date)) changes.date = raw.date;
+  } else {
+    if (isValidDate(raw.date)) changes.date = raw.date;
+    if (TIME_RE.test(raw.startTime)) changes.startTime = raw.startTime;
+    if (TIME_RE.test(raw.endTime)) changes.endTime = raw.endTime;
+  }
+  return changes;
+}
+
+function minutesToLabel(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
 function addDays(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + n);
@@ -117,6 +142,12 @@ export async function POST(req) {
 
   const knownTaskIds = new Set((existingTasks || []).map((t) => t.id));
   const knownEventIds = new Set((existingEvents || []).map((e) => e.id));
+  const taskLabels = new Map(
+    (existingTasks || []).map((t) => [t.id, `${t.text} (due ${t.due_date || "no date"})`])
+  );
+  const eventLabels = new Map(
+    (existingEvents || []).map((e) => [e.id, `${e.text} — ${e.event_date}, ${minutesToLabel(e.start_min)}–${minutesToLabel(e.end_min)}`])
+  );
 
   try {
     const text = await callClaude(
@@ -128,7 +159,10 @@ ${taskSummary}
 EXISTING EVENTS:
 ${eventSummary}
 
-Given a raw brain-dump, first check whether it refers to changing, completing, or removing one of the EXISTING items above (matching by meaning/description, not exact wording — e.g. "the dentist appointment" matches an existing event about a dentist). Only treat it as a modification if you're confident it refers to something already listed above; if you're unsure, or it sounds like something new, treat it as a new item instead.
+Given a raw brain-dump, first check whether it refers to changing, completing, or removing one of the EXISTING items above (matching by meaning/description, not exact wording — e.g. "the dentist appointment" matches an existing event about a dentist).
+- If exactly one existing item is a confident match, treat it as a modification.
+- If it clearly refers to changing/completing/removing something, but TWO OR MORE existing items are plausible matches (similar or ambiguous wording, e.g. two things both called "meeting"), do NOT guess — put it in "clarifications" instead, listing the 2-4 most plausible candidate ids, so the person can pick which one they meant.
+- If it sounds like a brand new item instead (no plausible existing match at all), treat it as a new item.
 
 For everything that isn't a modification of an existing item, extract discrete new items and classify each as:
 - "event": a specific clock time IS stated, and AM/PM (or an unambiguous context clue like "school", "lunch", typical business hours) makes the meridiem clear.
@@ -139,7 +173,7 @@ For everything that isn't a modification of an existing item, extract discrete n
 
 Resolve any date reference (today, tomorrow, in a week, next Friday, a specific date, etc.) into an absolute date in YYYY-MM-DD format, relative to today's date above. If a clock time is stated but no date is mentioned, assume the date is today. If an item mentions no date or time at all, set date to null.
 
-Return ONLY valid JSON, no markdown fences: an object with two keys, "items" and "modifications".
+Return ONLY valid JSON, no markdown fences: an object with three keys, "items", "modifications", and "clarifications".
 
 "items" is an array of objects, each with:
 - type: "task", "event", "ambiguous_time", "appointment", or "recurring"
@@ -160,6 +194,12 @@ Return ONLY valid JSON, no markdown fences: an object with two keys, "items" and
 - id: the exact id string from the EXISTING lists above — never invent one
 - action: "update", "delete", or "complete" (complete only valid for tasks — marks it done)
 - changes: only for "update" — an object with just the fields being changed (task: text/category/minutes/priority/date; event: text/date/startTime/endTime)
+
+"clarifications" is an array of objects, each with:
+- targetType: "task" or "event"
+- action: "update", "delete", or "complete"
+- changes: only for "update" — same shape as above
+- candidateIds: array of 2-4 exact id strings from the EXISTING lists above that could plausibly be meant — never invent one
 
 Do not invent items not implied by the input.`,
       dump,
@@ -225,31 +265,39 @@ Do not invent items not implied by the input.`,
     for (const m of rawModifications) {
       if (m?.targetType === "task" && knownTaskIds.has(m.id) && ["update", "delete", "complete"].includes(m.action)) {
         const mod = { targetType: "task", id: m.id, action: m.action };
-        if (m.action === "update" && m.changes && typeof m.changes === "object") {
-          const changes = {};
-          if (typeof m.changes.text === "string") changes.text = m.changes.text.slice(0, 500);
-          if (VALID_CATEGORIES.has(m.changes.category)) changes.category = m.changes.category;
-          if (Number.isFinite(m.changes.minutes)) changes.minutes = Math.max(1, Math.round(m.changes.minutes));
-          if ([1, 2, 3].includes(m.changes.priority)) changes.priority = m.changes.priority;
-          if (m.changes.date === null || isValidDate(m.changes.date)) changes.date = m.changes.date;
-          mod.changes = changes;
-        }
+        if (m.action === "update") mod.changes = sanitizeChanges("task", m.changes);
         modifications.push(mod);
       } else if (m?.targetType === "event" && knownEventIds.has(m.id) && ["update", "delete"].includes(m.action)) {
         const mod = { targetType: "event", id: m.id, action: m.action };
-        if (m.action === "update" && m.changes && typeof m.changes === "object") {
-          const changes = {};
-          if (typeof m.changes.text === "string") changes.text = m.changes.text.slice(0, 500);
-          if (isValidDate(m.changes.date)) changes.date = m.changes.date;
-          if (TIME_RE.test(m.changes.startTime)) changes.startTime = m.changes.startTime;
-          if (TIME_RE.test(m.changes.endTime)) changes.endTime = m.changes.endTime;
-          mod.changes = changes;
-        }
+        if (m.action === "update") mod.changes = sanitizeChanges("event", m.changes);
         modifications.push(mod);
       }
     }
 
-    return NextResponse.json({ tasks, events, needsTime, ambiguousTime, modifications });
+    // Genuinely ambiguous references — ask which one was meant rather
+    // than guessing. Only kept if at least 2 candidates are real ids we
+    // actually sent (otherwise there's nothing to choose between).
+    const rawClarifications = Array.isArray(parsed?.clarifications) ? parsed.clarifications : [];
+    const clarifications = [];
+    for (const c of rawClarifications) {
+      const targetType = c?.targetType;
+      const knownIds = targetType === "task" ? knownTaskIds : targetType === "event" ? knownEventIds : null;
+      const labels = targetType === "task" ? taskLabels : eventLabels;
+      const validActions = targetType === "task" ? ["update", "delete", "complete"] : ["update", "delete"];
+      if (!knownIds || !validActions.includes(c.action) || !Array.isArray(c.candidateIds)) continue;
+
+      const candidates = c.candidateIds
+        .filter((id) => knownIds.has(id))
+        .slice(0, 4)
+        .map((id) => ({ id, label: labels.get(id) }));
+      if (candidates.length < 2) continue;
+
+      const entry = { targetType, action: c.action, candidates };
+      if (c.action === "update") entry.changes = sanitizeChanges(targetType, c.changes);
+      clarifications.push(entry);
+    }
+
+    return NextResponse.json({ tasks, events, needsTime, ambiguousTime, modifications, clarifications });
   } catch (e) {
     return NextResponse.json(
       { error: "Couldn't organize that. Try again in a moment." },
