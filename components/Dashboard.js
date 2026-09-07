@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange,
+  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { TOKENS } from "@/lib/theme";
@@ -13,12 +13,20 @@ import {
 } from "@/lib/scheduling";
 import {
   fetchTasks, insertTasks, updateTask, deleteTask, startTask,
-  fetchEventsByDate, insertEvent, deleteEvent,
+  fetchEventsByDate, insertEvent, insertEvents, updateEvent, deleteEvent,
   fetchRecap, upsertRecap,
 } from "@/lib/data";
 import { computeCategoryMultipliers, applyLearnedEstimates } from "@/lib/learning";
 import TimePromptModal from "@/components/TimePromptModal";
+import AmPmPromptModal from "@/components/AmPmPromptModal";
 import MonthCalendar from "@/components/MonthCalendar";
+import EditTaskModal from "@/components/EditTaskModal";
+import EditEventModal from "@/components/EditEventModal";
+
+function timeStrToMinutes(hhmm) {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
 
 // Shame-free design principle (see CLAUDE.md): someone returning after a
 // gap gets a plain, warm acknowledgment — never a pileup of what they
@@ -93,6 +101,9 @@ export default function Dashboard({ userId, name }) {
   const [calendarView, setCalendarView] = useState("day"); // "day" | "month"
   const [monthDate, setMonthDate] = useState(new Date());
   const [timeQueue, setTimeQueue] = useState([]); // items needing a start/end time
+  const [ampmQueue, setAmpmQueue] = useState([]); // items needing AM/PM clarified
+  const [editingTask, setEditingTask] = useState(null);
+  const [editingEvent, setEditingEvent] = useState(null); // { event, date }
 
   useEffect(() => {
     (async () => {
@@ -135,6 +146,92 @@ export default function Dashboard({ userId, name }) {
     setSelectedDate(d);
   };
 
+  const applyModifications = useCallback(
+    async (mods) => {
+      for (const mod of mods) {
+        try {
+          if (mod.targetType === "task") {
+            if (mod.action === "delete") {
+              await deleteTask(supabase, mod.id);
+              setTasks((prev) => prev.filter((t) => t.id !== mod.id));
+            } else if (mod.action === "complete") {
+              const task = tasks.find((t) => t.id === mod.id);
+              let actualMinutes = task?.actualMinutes;
+              if (task?.startedAt) {
+                actualMinutes = Math.max(1, Math.round((Date.now() - new Date(task.startedAt).getTime()) / 60000));
+              }
+              await updateTask(supabase, mod.id, {
+                done: true,
+                actual_minutes: actualMinutes,
+                completed_at: new Date().toISOString(),
+              });
+              setTasks((prev) => prev.map((t) => (t.id === mod.id ? { ...t, done: true, actualMinutes } : t)));
+            } else if (mod.action === "update") {
+              const c = mod.changes || {};
+              const patch = {};
+              if (c.text !== undefined) patch.text = c.text;
+              if (c.category !== undefined) patch.category = c.category;
+              if (c.minutes !== undefined) patch.minutes = c.minutes;
+              if (c.priority !== undefined) patch.priority = c.priority;
+              if (c.date !== undefined) patch.due_date = c.date;
+              await updateTask(supabase, mod.id, patch);
+              setTasks((prev) => prev.map((t) => {
+                if (t.id !== mod.id) return t;
+                return {
+                  ...t,
+                  ...(c.text !== undefined && { text: c.text }),
+                  ...(c.category !== undefined && { category: c.category }),
+                  ...(c.minutes !== undefined && { minutes: c.minutes }),
+                  ...(c.priority !== undefined && { priority: c.priority }),
+                  ...(c.date !== undefined && { dueDate: c.date }),
+                };
+              }));
+            }
+          } else if (mod.targetType === "event") {
+            if (mod.action === "delete") {
+              await deleteEvent(supabase, mod.id);
+              setEventsByDate((prev) => {
+                const next = {};
+                for (const [date, evs] of Object.entries(prev)) next[date] = evs.filter((e) => e.id !== mod.id);
+                return next;
+              });
+            } else if (mod.action === "update") {
+              const c = mod.changes || {};
+              const patch = {};
+              if (c.text !== undefined) patch.text = c.text;
+              if (c.date !== undefined) patch.event_date = c.date;
+              if (c.startTime !== undefined) patch.start_min = timeStrToMinutes(c.startTime);
+              if (c.endTime !== undefined) patch.end_min = timeStrToMinutes(c.endTime);
+              await updateEvent(supabase, mod.id, patch);
+              setEventsByDate((prev) => {
+                let oldDate = null;
+                for (const [date, evs] of Object.entries(prev)) {
+                  if (evs.some((e) => e.id === mod.id)) { oldDate = date; break; }
+                }
+                if (oldDate === null) return prev;
+                const oldEvent = prev[oldDate].find((e) => e.id === mod.id);
+                const updatedEvent = {
+                  ...oldEvent,
+                  ...(c.text !== undefined && { text: c.text }),
+                  ...(c.startTime !== undefined && { start: timeStrToMinutes(c.startTime) }),
+                  ...(c.endTime !== undefined && { end: timeStrToMinutes(c.endTime) }),
+                };
+                const newDate = c.date !== undefined ? c.date : oldDate;
+                const next = { ...prev };
+                next[oldDate] = next[oldDate].filter((e) => e.id !== mod.id);
+                next[newDate] = [...(next[newDate] || []), updatedEvent];
+                return next;
+              });
+            }
+          }
+        } catch (e) {
+          setError("Couldn't apply one of the changes.");
+        }
+      }
+    },
+    [tasks, supabase]
+  );
+
   const handleOrganize = useCallback(async () => {
     if (!dump.trim()) return;
     setOrganizing(true);
@@ -145,11 +242,23 @@ export default function Dashboard({ userId, name }) {
         tasks: newTaskDrafts,
         events: newEventDrafts,
         needsTime: newNeedsTime,
+        ambiguousTime: newAmbiguousTime,
+        modifications,
       } = await postJson("/api/organize", { dump, today: dateKey(new Date()) });
 
-      if (newTaskDrafts.length === 0 && newEventDrafts.length === 0 && newNeedsTime.length === 0) {
+      if (
+        newTaskDrafts.length === 0 &&
+        newEventDrafts.length === 0 &&
+        newNeedsTime.length === 0 &&
+        newAmbiguousTime.length === 0 &&
+        modifications.length === 0
+      ) {
         setError("Didn't find anything actionable in that — try adding a bit more detail.");
         return;
+      }
+
+      if (modifications.length > 0) {
+        await applyModifications(modifications);
       }
 
       if (newTaskDrafts.length > 0) {
@@ -161,11 +270,11 @@ export default function Dashboard({ userId, name }) {
       const laterDates = new Set();
 
       if (newEventDrafts.length > 0) {
+        const saved = await insertEvents(supabase, userId, newEventDrafts);
         const savedByDate = {};
-        for (const draft of newEventDrafts) {
-          const saved = await insertEvent(supabase, userId, draft.date, draft);
-          (savedByDate[draft.date] ??= []).push(saved);
-          if (draft.date !== todayKey) laterDates.add(draft.date);
+        for (const ev of saved) {
+          (savedByDate[ev.date] ??= []).push(ev);
+          if (ev.date !== todayKey) laterDates.add(ev.date);
         }
         setEventsByDate((prev) => {
           const next = { ...prev };
@@ -182,16 +291,21 @@ export default function Dashboard({ userId, name }) {
       // Something scheduled for later won't show up on today's plan —
       // say so, so it doesn't look like it silently vanished.
       if (laterDates.size > 0) {
-        const described = [...laterDates].sort().map(describeDate);
+        const sorted = [...laterDates].sort();
         const list =
-          described.length === 1
-            ? described[0]
-            : `${described.slice(0, -1).join(", ")} and ${described[described.length - 1]}`;
+          sorted.length > 5
+            ? `${sorted.length} days, starting ${describeDate(sorted[0])}`
+            : sorted.length === 1
+              ? describeDate(sorted[0])
+              : `${sorted.slice(0, -1).map(describeDate).join(", ")} and ${describeDate(sorted[sorted.length - 1])}`;
         setNotice(`Added — some of this is scheduled for ${list}.`);
       }
 
       if (newNeedsTime.length > 0) {
         setTimeQueue((prev) => [...prev, ...newNeedsTime]);
+      }
+      if (newAmbiguousTime.length > 0) {
+        setAmpmQueue((prev) => [...prev, ...newAmbiguousTime]);
       }
 
       setDump("");
@@ -200,7 +314,7 @@ export default function Dashboard({ userId, name }) {
     } finally {
       setOrganizing(false);
     }
-  }, [dump, supabase, userId]);
+  }, [dump, supabase, userId, applyModifications]);
 
   const handleTimePromptSave = useCallback(
     async ({ start, end }) => {
@@ -220,6 +334,72 @@ export default function Dashboard({ userId, name }) {
   const handleTimePromptSkip = useCallback(() => {
     setTimeQueue((prev) => prev.slice(1));
   }, []);
+
+  const handleAmPmChoose = useCallback(
+    async (ampm) => {
+      const item = ampmQueue[0];
+      if (!item) return;
+      setAmpmQueue((prev) => prev.slice(1));
+      let hour24 = item.hour % 12;
+      if (ampm === "PM") hour24 += 12;
+      const start = hour24 * 60 + item.minute;
+      const end = start + 60;
+      try {
+        const saved = await insertEvent(supabase, userId, item.date, { text: item.text, start, end });
+        setEventsByDate((prev) => ({ ...prev, [item.date]: [...(prev[item.date] || []), saved] }));
+      } catch (e) {
+        setError("Couldn't add that to the calendar.");
+      }
+    },
+    [ampmQueue, supabase, userId]
+  );
+
+  const handleAmPmSkip = useCallback(() => {
+    setAmpmQueue((prev) => prev.slice(1));
+  }, []);
+
+  const handleSaveTaskEdit = useCallback(
+    async (changes) => {
+      if (!editingTask) return;
+      const id = editingTask.id;
+      setEditingTask(null);
+      try {
+        await updateTask(supabase, id, changes);
+        setTasks((prev) => prev.map((t) => (t.id === id ? {
+          ...t,
+          text: changes.text,
+          category: changes.category,
+          minutes: changes.minutes,
+          priority: changes.priority,
+          dueDate: changes.due_date,
+        } : t)));
+      } catch (e) {
+        setError("Couldn't save those changes.");
+      }
+    },
+    [editingTask, supabase]
+  );
+
+  const handleSaveEventEdit = useCallback(
+    async ({ text, date, start, end }) => {
+      if (!editingEvent) return;
+      const id = editingEvent.event.id;
+      const oldDate = editingEvent.date;
+      setEditingEvent(null);
+      try {
+        await updateEvent(supabase, id, { text, event_date: date, start_min: start, end_min: end });
+        setEventsByDate((prev) => {
+          const next = { ...prev };
+          next[oldDate] = (next[oldDate] || []).filter((e) => e.id !== id);
+          next[date] = [...(next[date] || []), { id, text, start, end }];
+          return next;
+        });
+      } catch (e) {
+        setError("Couldn't save those changes.");
+      }
+    },
+    [editingEvent, supabase]
+  );
 
   const handleBreakdown = useCallback(
     async (task) => {
@@ -473,6 +653,7 @@ export default function Dashboard({ userId, name }) {
                 {dayEvents.map((ev) => (
                   <div key={ev.id} className="flex items-center gap-2" style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "999px", padding: "6px 12px", fontSize: "13px" }}>
                     <span>{ev.text} · {minsToLabel(ev.start)}–{minsToLabel(ev.end)}</span>
+                    <button onClick={() => setEditingEvent({ event: ev, date: dKey })} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><Pencil size={12} /></button>
                     <button onClick={() => removeEvent(ev.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, display: "flex" }}><X size={13} /></button>
                   </div>
                 ))}
@@ -548,6 +729,9 @@ export default function Dashboard({ userId, name }) {
                           {breakingId === t.id ? "Breaking it down" : "Too much? Break it down"}
                         </button>
                       )}
+                      <button onClick={() => setEditingTask(t)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
+                        <Pencil size={12} /> Edit
+                      </button>
                       <button onClick={() => removeTask(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
                         <Trash2 size={12} /> Remove
                       </button>
@@ -584,6 +768,31 @@ export default function Dashboard({ userId, name }) {
           item={timeQueue[0]}
           onSave={handleTimePromptSave}
           onSkip={handleTimePromptSkip}
+        />
+      )}
+
+      {ampmQueue.length > 0 && (
+        <AmPmPromptModal
+          item={ampmQueue[0]}
+          onChoose={handleAmPmChoose}
+          onSkip={handleAmPmSkip}
+        />
+      )}
+
+      {editingTask && (
+        <EditTaskModal
+          task={editingTask}
+          onSave={handleSaveTaskEdit}
+          onCancel={() => setEditingTask(null)}
+        />
+      )}
+
+      {editingEvent && (
+        <EditEventModal
+          event={editingEvent.event}
+          date={editingEvent.date}
+          onSave={handleSaveEventEdit}
+          onCancel={() => setEditingEvent(null)}
         />
       )}
     </div>

@@ -3,66 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { TOKENS } from "@/lib/theme";
-
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
-
-function to24h(hour12, minute, ampm) {
-  let h = hour12 % 12;
-  if (ampm === "PM") h += 12;
-  return h * 60 + minute;
-}
-
-function TimeRow({ label, hour, minute, ampm, onChange, extra }) {
-  return (
-    <div className="mb-4">
-      <label style={{ fontSize: "13px", color: TOKENS.sub, display: "block", marginBottom: "6px" }}>
-        {label}
-      </label>
-      <div className="flex items-center gap-2 flex-wrap">
-        <select
-          value={hour}
-          onChange={(e) => onChange({ hour: Number(e.target.value), minute, ampm })}
-          style={selectStyle}
-        >
-          {HOURS.map((h) => (
-            <option key={h} value={h}>{h}</option>
-          ))}
-        </select>
-        <span style={{ color: TOKENS.sub }}>:</span>
-        <select
-          value={minute}
-          onChange={(e) => onChange({ hour, minute: Number(e.target.value), ampm })}
-          style={selectStyle}
-        >
-          {MINUTES.map((m) => (
-            <option key={m} value={m}>{m.toString().padStart(2, "0")}</option>
-          ))}
-        </select>
-        <div className="flex items-center" style={{ border: `1px solid ${TOKENS.border}`, borderRadius: "8px", overflow: "hidden" }}>
-          {["AM", "PM"].map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onChange({ hour, minute, ampm: p })}
-              style={{
-                border: "none",
-                padding: "9px 12px",
-                fontSize: "16px",
-                cursor: "pointer",
-                background: ampm === p ? TOKENS.now : TOKENS.card,
-                color: ampm === p ? "#fff" : TOKENS.ink,
-              }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-        {extra}
-      </div>
-    </div>
-  );
-}
+import TimeField, { to24h } from "@/components/TimeField";
 
 // One item at a time from a queue built in Dashboard.js. onSave receives
 // {start, end} in minutes-since-midnight; onSkip means "don't add this to
@@ -105,9 +46,9 @@ export default function TimePromptModal({ item, onSave, onSkip }) {
           &quot;{item.text}&quot; sounds like it has a set time — when is it?
         </p>
 
-        <TimeRow label="Start time" {...start} onChange={setStart} />
+        <TimeField label="Start time" {...start} onChange={setStart} />
 
-        <TimeRow
+        <TimeField
           label="End time"
           {...end}
           onChange={(v) => { setEnd(v); setEndUnknown(false); }}
@@ -145,13 +86,3 @@ export default function TimePromptModal({ item, onSave, onSkip }) {
     </div>
   );
 }
-
-const selectStyle = {
-  background: TOKENS.card,
-  border: `1px solid ${TOKENS.border}`,
-  borderRadius: "8px",
-  padding: "9px 8px",
-  fontSize: "16px",
-  fontFamily: "inherit",
-  outline: "none",
-};
