@@ -88,6 +88,10 @@ export default function Dashboard({ userId, name }) {
     setError("");
     try {
       const { tasks: newTaskDrafts } = await postJson("/api/organize", { dump });
+      if (newTaskDrafts.length === 0) {
+        setError("Didn't find anything actionable in that — try adding a bit more detail.");
+        return;
+      }
       const inserted = await insertTasks(supabase, userId, newTaskDrafts);
       setTasks((prev) => [...prev, ...inserted]);
       setDump("");
@@ -154,7 +158,13 @@ export default function Dashboard({ userId, name }) {
     if (!eventText.trim() || !eventStart || !eventEnd) return;
     const [sh, sm] = eventStart.split(":").map(Number);
     const [eh, em] = eventEnd.split(":").map(Number);
-    const draft = { text: eventText, start: sh * 60 + sm, end: eh * 60 + em };
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    if (end <= start) {
+      setError("End time needs to be after the start time.");
+      return;
+    }
+    const draft = { text: eventText, start, end };
     try {
       const saved = await insertEvent(supabase, userId, dKey, draft);
       setEventsByDate((prev) => ({ ...prev, [dKey]: [...(prev[dKey] || []), saved] }));
@@ -235,7 +245,7 @@ export default function Dashboard({ userId, name }) {
             value={dump} onChange={(e) => setDump(e.target.value)}
             placeholder="Everything on your mind. Emails to send, errands, that thing you keep forgetting. Don't organize it, just dump it."
             className="w-full"
-            style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "12px", padding: "14px 16px", fontSize: "14px", minHeight: "100px", color: TOKENS.ink, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+            style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "12px", padding: "14px 16px", fontSize: "16px", minHeight: "100px", color: TOKENS.ink, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
           />
           <button onClick={handleOrganize} disabled={organizing || !dump.trim()} className="mt-3 flex items-center gap-2"
             style={{ background: TOKENS.now, color: "#fff", border: "none", borderRadius: "10px", padding: "10px 18px", fontSize: "14px", fontWeight: 500, cursor: organizing ? "default" : "pointer", opacity: !dump.trim() ? 0.5 : 1 }}>
@@ -266,12 +276,14 @@ export default function Dashboard({ userId, name }) {
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <input value={eventText} onChange={(e) => setEventText(e.target.value)} placeholder="e.g. Dentist"
-              style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "13px", fontFamily: "inherit", width: "140px", outline: "none" }} />
-            <input type="time" value={eventStart} onChange={(e) => setEventStart(e.target.value)}
-              style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "13px", fontFamily: "inherit", outline: "none" }} />
-            <span style={{ color: TOKENS.sub, fontSize: "13px" }}>to</span>
-            <input type="time" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)}
-              style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "13px", fontFamily: "inherit", outline: "none" }} />
+              style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", width: "140px", outline: "none" }} />
+            <div className="flex items-center gap-2" style={{ flexWrap: "nowrap" }}>
+              <input type="time" value={eventStart} onChange={(e) => setEventStart(e.target.value)}
+                style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
+              <span style={{ color: TOKENS.sub, fontSize: "13px" }}>to</span>
+              <input type="time" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)}
+                style={{ background: TOKENS.card, border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 10px", fontSize: "16px", fontFamily: "inherit", outline: "none" }} />
+            </div>
             <button onClick={addEvent} className="flex items-center gap-1" style={{ background: "none", border: `1px solid ${TOKENS.border}`, borderRadius: "8px", padding: "7px 12px", fontSize: "13px", cursor: "pointer", color: TOKENS.ink }}>
               <Plus size={14} /> Add
             </button>
@@ -296,7 +308,7 @@ export default function Dashboard({ userId, name }) {
                       {t.overflow && !t.done && <span style={{ fontSize: "11px", background: TOKENS.overflowBg, color: TOKENS.overflow, borderRadius: "999px", padding: "2px 8px" }}>doesn&apos;t fit this day</span>}
                       {!t.overflow && !t.done && t.scheduledStart != null && <span style={{ fontSize: "12px", color: TOKENS.sub }}>at {minsToLabel(t.scheduledStart)}</span>}
                     </div>
-                    {t.steps && (
+                    {t.steps && t.steps.length > 0 && (
                       <div className="mt-2 flex flex-col gap-1">
                         {t.steps.map((s) => (
                           <div key={s.id} className="flex items-center gap-2">
@@ -309,7 +321,7 @@ export default function Dashboard({ userId, name }) {
                       </div>
                     )}
                     <div className="flex items-center gap-3 mt-2">
-                      {!t.steps && (
+                      {(!t.steps || t.steps.length === 0) && (
                         <button onClick={() => handleBreakdown(t)} disabled={breakingId === t.id}
                           style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.now, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
                           {breakingId === t.id ? <Loader2 size={12} className="animate-spin" /> : null}

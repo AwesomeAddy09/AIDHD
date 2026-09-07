@@ -60,6 +60,8 @@ export default function LoginPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        padding: "16px",
+        boxSizing: "border-box",
       }}
     >
       <div
@@ -69,6 +71,8 @@ export default function LoginPage() {
           borderRadius: "14px",
           padding: "32px 28px",
           width: "340px",
+          maxWidth: "100%",
+          boxSizing: "border-box",
         }}
       >
         <h1
@@ -182,7 +186,7 @@ const inputStyle = {
   border: `1px solid ${TOKENS.border}`,
   borderRadius: "8px",
   padding: "9px 12px",
-  fontSize: "14px",
+  fontSize: "16px",
   fontFamily: "inherit",
   outline: "none",
   boxSizing: "border-box",

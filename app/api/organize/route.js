@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude, parseJsonLoose } from "@/lib/anthropic";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const VALID_CATEGORIES = new Set(["work", "personal", "errand", "health", "admin"]);
 
@@ -11,6 +12,11 @@ export async function POST(req) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const allowed = await checkRateLimit(supabase, user.id, "organize", { limit: 8, windowSeconds: 60 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Slow down a little — try again in a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);

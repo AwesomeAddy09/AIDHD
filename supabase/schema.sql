@@ -34,9 +34,19 @@ create table if not exists public.recaps (
   unique (user_id, recap_date)
 );
 
+-- Backs a simple per-user rate limit on the Claude-calling API routes, so
+-- one signed-in tester can't hammer them and run up the Anthropic bill.
+create table if not exists public.api_usage (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  route text not null,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);
 create index if not exists recaps_user_id_date_idx on public.recaps (user_id, recap_date);
+create index if not exists api_usage_user_route_time_idx on public.api_usage (user_id, route, created_at);
 
 -- Postgres checks these grants before row-level security is even evaluated,
 -- so without them every request gets "permission denied" regardless of the
@@ -46,10 +56,12 @@ grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.tasks to anon, authenticated;
 grant select, insert, update, delete on public.events to anon, authenticated;
 grant select, insert, update, delete on public.recaps to anon, authenticated;
+grant select, insert on public.api_usage to anon, authenticated;
 
 alter table public.tasks enable row level security;
 alter table public.events enable row level security;
 alter table public.recaps enable row level security;
+alter table public.api_usage enable row level security;
 
 create policy "tasks: owner read" on public.tasks for select using (auth.uid() = user_id);
 create policy "tasks: owner insert" on public.tasks for insert with check (auth.uid() = user_id);
@@ -65,3 +77,6 @@ create policy "recaps: owner read" on public.recaps for select using (auth.uid()
 create policy "recaps: owner insert" on public.recaps for insert with check (auth.uid() = user_id);
 create policy "recaps: owner update" on public.recaps for update using (auth.uid() = user_id);
 create policy "recaps: owner delete" on public.recaps for delete using (auth.uid() = user_id);
+
+create policy "api_usage: owner read" on public.api_usage for select using (auth.uid() = user_id);
+create policy "api_usage: owner insert" on public.api_usage for insert with check (auth.uid() = user_id);

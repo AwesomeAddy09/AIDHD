@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { callClaude, parseJsonLoose } from "@/lib/anthropic";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function POST(req) {
   const supabase = await createClient();
@@ -9,6 +10,11 @@ export async function POST(req) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const allowed = await checkRateLimit(supabase, user.id, "breakdown", { limit: 15, windowSeconds: 60 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Slow down a little — try again in a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);
@@ -23,7 +29,9 @@ export async function POST(req) {
       taskText
     );
     const parsed = parseJsonLoose(text);
-    if (!Array.isArray(parsed)) throw new Error("Unexpected response shape");
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("Unexpected response shape");
+    }
 
     const steps = parsed.map((s) => String(s).slice(0, 300));
     return NextResponse.json({ steps });
