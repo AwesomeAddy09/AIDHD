@@ -49,7 +49,7 @@ export async function POST(req) {
     return NextResponse.json({ tasks });
   } catch (e) {
     return NextResponse.json(
-      { error: "Couldn't organize that. Try again in a moment.", debug: e?.message, debugStatus: e?.status },
+      { error: "Couldn't organize that. Try again in a moment." },
       { status: 502 }
     );
   }
