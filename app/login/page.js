@@ -7,13 +7,14 @@ import { TOKENS } from "@/lib/theme";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [devCreds, setDevCreds] = useState(null); // { email, password }, only ever set outside production
 
   useEffect(() => {
@@ -54,11 +55,29 @@ export default function LoginPage() {
     setLoading(true);
     const supabase = createClient();
     try {
+      if (mode === "forgot") {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth/reset-password`,
+        });
+        if (resetError) throw resetError;
+        setNotice("If there's an account for that email, a reset link is on its way.");
+        return;
+      }
       if (mode === "signup") {
+        if (!agreedToTerms) {
+          setError("Please agree to the terms of service and privacy policy to continue.");
+          setLoading(false);
+          return;
+        }
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { name: name.trim() || email.split("@")[0] } },
+          options: {
+            data: {
+              name: name.trim() || email.split("@")[0],
+              terms_accepted_at: new Date().toISOString(),
+            },
+          },
         });
         if (signUpError) throw signUpError;
         if (!data.session) {
@@ -148,18 +167,53 @@ export default function LoginPage() {
             style={inputStyle}
           />
 
-          <label style={{ fontSize: "13px", color: TOKENS.sub, display: "block", margin: "12px 0 6px" }}>
-            Password
-          </label>
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 6 characters"
-            style={inputStyle}
-          />
+          {mode !== "forgot" && (
+            <>
+              <label style={{ fontSize: "13px", color: TOKENS.sub, display: "block", margin: "12px 0 6px" }}>
+                Password
+              </label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 6 characters"
+                style={inputStyle}
+              />
+            </>
+          )}
+
+          {mode === "signin" && (
+            <button
+              type="button"
+              onClick={() => {
+                setMode("forgot");
+                setError("");
+                setNotice("");
+              }}
+              style={{ background: "none", border: "none", color: TOKENS.sub, fontSize: "12px", cursor: "pointer", padding: 0, marginTop: "8px" }}
+            >
+              Forgot password?
+            </button>
+          )}
+
+          {mode === "signup" && (
+            <label className="flex items-start gap-2" style={{ marginTop: "14px", fontSize: "12px", color: TOKENS.sub, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                style={{ marginTop: "2px", flexShrink: 0 }}
+              />
+              <span>
+                By continuing, you agree to the{" "}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: TOKENS.ink }}>Terms of Service</a>
+                {" "}and{" "}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: TOKENS.ink }}>Privacy Policy</a>.
+              </span>
+            </label>
+          )}
 
           {error && (
             <p style={{ color: TOKENS.overflow, fontSize: "13px", marginTop: "12px" }}>{error}</p>
@@ -185,13 +239,13 @@ export default function LoginPage() {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? "One sec…" : mode === "signup" ? "Create account" : "Sign in"}
+            {loading ? "One sec…" : mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Sign in"}
           </button>
         </form>
 
         <button
           onClick={() => {
-            setMode(mode === "signup" ? "signin" : "signup");
+            setMode(mode === "signup" ? "signin" : mode === "forgot" ? "signin" : "signup");
             setError("");
             setNotice("");
           }}
@@ -205,7 +259,7 @@ export default function LoginPage() {
             cursor: "pointer",
           }}
         >
-          {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
+          {mode === "signup" ? "Already have an account? Sign in" : mode === "forgot" ? "Back to sign in" : "New here? Create an account"}
         </button>
 
         {devCreds && (

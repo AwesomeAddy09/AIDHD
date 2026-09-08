@@ -13,9 +13,12 @@ export async function POST(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const allowed = await checkRateLimit(supabase, user.id, "breakdown", { limit: 15, windowSeconds: 60 });
+  const allowed = await checkRateLimit(supabase, user.id, "breakdown", [
+    { limit: 15, windowSeconds: 60 },
+    { limit: 100, windowSeconds: 86400 },
+  ]);
   if (!allowed) {
-    return NextResponse.json({ error: "Slow down a little, try again in a minute." }, { status: 429 });
+    return NextResponse.json({ error: "You've hit today's limit for this, try again in a bit." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);

@@ -20,9 +20,12 @@ export async function POST(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const allowed = await checkRateLimit(supabase, user.id, "recorder_chunk", { limit: 90, windowSeconds: 600 });
+  const allowed = await checkRateLimit(supabase, user.id, "recorder_chunk", [
+    { limit: 90, windowSeconds: 600 },
+    { limit: 400, windowSeconds: 86400 },
+  ]);
   if (!allowed) {
-    return NextResponse.json({ error: "Slow down a little, try again in a bit." }, { status: 429 });
+    return NextResponse.json({ error: "You've hit today's limit for this, try again in a bit." }, { status: 429 });
   }
 
   const formData = await req.formData().catch(() => null);

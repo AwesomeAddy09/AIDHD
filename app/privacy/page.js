@@ -69,6 +69,14 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
+        <Section title="If something breaks">
+          <p style={para}>
+            If the app errors out, basic details about what happened (not your task or recording
+            content) are sent to Sentry, an error-monitoring service, so it can get fixed without you
+            having to track us down and report it yourself.
+          </p>
+        </Section>
+
         <Section title="What we don't do">
           <ul style={list}>
             <li>We don&apos;t sell your data</li>
@@ -79,12 +87,9 @@ export default function PrivacyPage() {
 
         <Section title="Your control">
           <p style={para}>
-            You can delete any task or event yourself, any time, right in the app. To delete your
-            entire account and everything in it, email{" "}
-            <a href="mailto:adam.l.dipietro@gmail.com" style={{ color: TOKENS.ink }}>
-              adam.l.dipietro@gmail.com
-            </a>{" "}
-            and it&apos;ll be taken care of.
+            You can delete any task or event yourself, any time, right in the app. You can delete
+            your entire account and everything in it yourself too, from Settings, no need to email
+            anyone.
           </p>
         </Section>
 

@@ -36,6 +36,7 @@ import {
 } from "@/lib/reminders";
 import { pickSettings, applySettingsToDocument, cacheSettings } from "@/lib/settings";
 import { playCompletionSound } from "@/lib/sound";
+import DeleteAccountModal from "@/components/DeleteAccountModal";
 
 // Three tabs instead of one long scrolling page: seeing everything at
 // once tends to overwhelm people with ADHD more than it helps them, so
@@ -399,6 +400,26 @@ export default function Dashboard({ userId, name }) {
     },
     [supabase, userId]
   );
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+
+  const handleDeleteAccount = useCallback(async () => {
+    setDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      const res = await fetch("/api/account/delete", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't delete your account.");
+      await supabase.auth.signOut();
+      router.push("/login");
+      router.refresh();
+    } catch (e) {
+      setDeleteAccountError(e.message || "Couldn't delete your account. Try again.");
+      setDeletingAccount(false);
+    }
+  }, [supabase, router]);
 
   const shiftDay = (delta) => {
     const d = new Date(selectedDate);
@@ -878,18 +899,32 @@ export default function Dashboard({ userId, name }) {
 
   if (editingSettings) {
     return (
-      <Onboarding
-        name={name}
-        isEdit
-        initialProfile={profile}
-        onComplete={handleOnboardingComplete}
-        onCancel={() => setEditingSettings(false)}
-        remindersEnabled={remindersEnabled}
-        reminderLeadMinutes={reminderLeadMinutes}
-        onUpdateReminderSettings={handleUpdateReminderSettings}
-        settings={settings}
-        onUpdateSettings={handleUpdateSettings}
-      />
+      <>
+        <Onboarding
+          name={name}
+          isEdit
+          initialProfile={profile}
+          onComplete={handleOnboardingComplete}
+          onCancel={() => setEditingSettings(false)}
+          remindersEnabled={remindersEnabled}
+          reminderLeadMinutes={reminderLeadMinutes}
+          onUpdateReminderSettings={handleUpdateReminderSettings}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          onRequestDeleteAccount={() => setShowDeleteConfirm(true)}
+        />
+        {showDeleteConfirm && (
+          <DeleteAccountModal
+            deleting={deletingAccount}
+            error={deleteAccountError}
+            onConfirm={handleDeleteAccount}
+            onCancel={() => {
+              setShowDeleteConfirm(false);
+              setDeleteAccountError("");
+            }}
+          />
+        )}
+      </>
     );
   }
 

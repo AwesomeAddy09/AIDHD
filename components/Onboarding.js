@@ -135,7 +135,7 @@ function Row({ label, children, last = false }) {
 export default function Onboarding({
   name, isEdit = false, initialProfile = null, onComplete, onCancel,
   remindersEnabled, reminderLeadMinutes, onUpdateReminderSettings,
-  settings, onUpdateSettings,
+  settings, onUpdateSettings, onRequestDeleteAccount,
 }) {
   const [stage, setStage] = useState(isEdit ? "questions" : "welcome");
   const [welcomeVisible, setWelcomeVisible] = useState(true);
@@ -398,6 +398,21 @@ export default function Onboarding({
           </button>
         </div>
       </div>
+
+      {isEdit && (
+        <div style={cardStyle}>
+          <div style={{ fontSize: "14px", fontWeight: 500, margin: "0 0 6px" }}>Account</div>
+          <p style={{ fontSize: "13px", color: TOKENS.sub, margin: "0 0 14px" }}>
+            Permanently delete your account and everything in it.
+          </p>
+          <button
+            onClick={onRequestDeleteAccount}
+            style={{ background: "none", border: `1px solid ${TOKENS.overflow}`, color: TOKENS.overflow, borderRadius: "10px", padding: "9px 14px", fontSize: "13px", cursor: "pointer" }}
+          >
+            Delete my account
+          </button>
+        </div>
+      )}
     </div>
   );
 }
