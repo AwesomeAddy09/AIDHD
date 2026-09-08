@@ -56,10 +56,12 @@ this and it must keep being true:
   from the `main` branch to the production Vercel domain
   (aidhd.vercel.app). This is where real testers' data lives — treat it
   accordingly.
-- **Staging**: a separate Supabase project (its own database, no real
-  user data ever), used by Vercel's automatic Preview deployments (any
-  branch other than `main`, or any PR). Push a feature branch, test it
-  on its own preview URL against staging data, merge to `main` only
-  once it looks right. See the session that set this up for the exact
-  staging project ref once it exists — update this file with it so
-  future sessions know where staging actually points.
+- **Staging**: Supabase project `xwpilimromfrgvjcmmgw`, its own
+  database, no real user data ever. Used by Vercel's automatic Preview
+  deployments (any branch other than `main`, or any PR) via
+  Preview-scoped env vars in Vercel's dashboard, and by local dev too
+  (`.env.local` points here, not at production — see its comments).
+  Push a feature branch, test it on its own preview URL against staging
+  data, merge to `main` only once it looks right. Has its own admin
+  test account (adam.l.dipietro+admintest@gmail.com, same password as
+  production's) for the dev-only login button.
