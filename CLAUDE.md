@@ -42,3 +42,24 @@ this and it must keep being true:
   source of truth, appended to over time) and give the user the exact
   incremental SQL to run themselves in the Supabase SQL editor — nothing
   in this app runs migrations automatically.
+- There are two Supabase projects: production (real user data) and
+  staging (isolated test data, used by Vercel Preview deployments — see
+  below). Whenever a migration is due, give the user the SQL to run
+  against **both**, not just production — the two schemas must never
+  drift apart. Same for anything else that's dashboard-configured per
+  project (auth email templates, RLS policies, storage buckets, etc.):
+  if it's done on production, it needs doing on staging too.
+
+## Environments
+
+- **Production**: Supabase project `qztubmzumktuyzukenbb`. Deployed
+  from the `main` branch to the production Vercel domain
+  (aidhd.vercel.app). This is where real testers' data lives — treat it
+  accordingly.
+- **Staging**: a separate Supabase project (its own database, no real
+  user data ever), used by Vercel's automatic Preview deployments (any
+  branch other than `main`, or any PR). Push a feature branch, test it
+  on its own preview URL against staging data, merge to `main` only
+  once it looks right. See the session that set this up for the exact
+  staging project ref once it exists — update this file with it so
+  future sessions know where staging actually points.

@@ -129,6 +129,19 @@ grant select, insert on public.api_usage to anon, authenticated;
 grant select, insert, update on public.profiles to anon, authenticated;
 grant select, insert, delete on public.recordings to anon, authenticated;
 
+-- Supabase's new-format secret key (the current name for what used to
+-- be called service_role) still goes through the exact same
+-- grant-before-RLS check as anon/authenticated — it bypasses RLS itself,
+-- but not this. Only granted where server code actually uses that key
+-- for a direct table operation: app/api/billing/webhook writing another
+-- user's plan (it has no session of its own to go through, since Stripe
+-- calls it directly). Account deletion doesn't need this — it goes
+-- through Auth's admin API, not a table grant, and the cascade delete
+-- that follows is enforced by each table's own foreign key, independent
+-- of any role's grants.
+grant usage on schema public to service_role;
+grant select, update on public.profiles to service_role;
+
 alter table public.tasks enable row level security;
 alter table public.events enable row level security;
 alter table public.recaps enable row level security;
