@@ -102,6 +102,15 @@ alter table public.profiles add column if not exists reduce_motion boolean not n
 alter table public.profiles add column if not exists completion_sound_enabled boolean not null default true;
 alter table public.profiles add column if not exists task_density text not null default 'comfortable';
 
+-- Billing skeleton (see lib/stripe.js, app/api/billing/*) — everyone is
+-- "free" and keeps full access regardless of plan for now. Nothing in
+-- the app actually checks this column yet; it exists so the Stripe test
+-- mode checkout/webhook flow has somewhere real to write its result.
+alter table public.profiles add column if not exists plan text not null default 'free';
+alter table public.profiles add column if not exists stripe_customer_id text;
+alter table public.profiles add column if not exists stripe_subscription_id text;
+create index if not exists profiles_stripe_customer_id_idx on public.profiles (stripe_customer_id);
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists recordings_user_id_idx on public.recordings (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);

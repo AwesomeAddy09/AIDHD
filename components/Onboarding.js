@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { TOKENS } from "@/lib/theme";
 import { minsToLabel } from "@/lib/scheduling";
 
@@ -136,6 +136,8 @@ export default function Onboarding({
   name, isEdit = false, initialProfile = null, onComplete, onCancel,
   remindersEnabled, reminderLeadMinutes, onUpdateReminderSettings,
   settings, onUpdateSettings, onRequestDeleteAccount,
+  plan = "free", billingLoading, onStartCheckout, onOpenBillingPortal,
+  error, onDismissError,
 }) {
   const [stage, setStage] = useState(isEdit ? "questions" : "welcome");
   const [welcomeVisible, setWelcomeVisible] = useState(true);
@@ -258,6 +260,18 @@ export default function Onboarding({
           <p style={{ color: TOKENS.sub, fontSize: "13px", margin: 0 }}>
             Display, reminders, and a bit about you.
           </p>
+        </div>
+      )}
+
+      {isEdit && error && (
+        <div
+          className="flex items-center justify-between"
+          style={{ background: TOKENS.overflowBg, color: TOKENS.overflow, borderRadius: "10px", padding: "10px 14px", fontSize: "14px", width: "420px", maxWidth: "100%", boxSizing: "border-box" }}
+        >
+          <span>{error}</span>
+          <button onClick={onDismissError} style={{ background: "none", border: "none", color: TOKENS.overflow, cursor: "pointer" }}>
+            <X size={16} />
+          </button>
         </div>
       )}
 
@@ -398,6 +412,35 @@ export default function Onboarding({
           </button>
         </div>
       </div>
+
+      {isEdit && (
+        <div style={cardStyle}>
+          <Row label="Plan" last>
+            <span
+              style={{
+                fontSize: "12px", fontWeight: 500, borderRadius: "999px", padding: "4px 10px",
+                background: plan === "pro" ? TOKENS.calmBg : TOKENS.neutralBg,
+                color: plan === "pro" ? TOKENS.calmText : TOKENS.neutralText,
+              }}
+            >
+              {plan === "pro" ? "Pro" : "Free"}
+            </span>
+          </Row>
+          <p style={{ fontSize: "13px", color: TOKENS.sub, margin: "14px 0" }}>
+            Everything works the same regardless of plan for now.
+          </p>
+          <button
+            onClick={plan === "pro" ? onOpenBillingPortal : onStartCheckout}
+            disabled={billingLoading}
+            style={{
+              background: "none", border: `1px solid ${TOKENS.border}`, color: TOKENS.ink, borderRadius: "10px",
+              padding: "9px 14px", fontSize: "13px", cursor: billingLoading ? "default" : "pointer", opacity: billingLoading ? 0.7 : 1,
+            }}
+          >
+            {billingLoading ? "One sec…" : plan === "pro" ? "Manage subscription" : "Upgrade"}
+          </button>
+        </div>
+      )}
 
       {isEdit && (
         <div style={cardStyle}>

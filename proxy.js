@@ -36,7 +36,10 @@ export async function proxy(request) {
     request.nextUrl.pathname.startsWith("/terms") ||
     // Reachable from the (unauthenticated) login page itself, to check
     // whether the dev-only "administrator test account" button applies.
-    request.nextUrl.pathname.startsWith("/api/dev-login");
+    request.nextUrl.pathname.startsWith("/api/dev-login") ||
+    // Called server-to-server by Stripe, never carries a session cookie
+    // — it verifies the request itself via the Stripe signature header.
+    request.nextUrl.pathname.startsWith("/api/billing/webhook");
 
   if (!user && !isAuthRoute) {
     const url = request.nextUrl.clone();

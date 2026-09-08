@@ -421,6 +421,32 @@ export default function Dashboard({ userId, name }) {
     }
   }, [supabase, router]);
 
+  const [billingLoading, setBillingLoading] = useState(false);
+
+  const handleStartCheckout = useCallback(async () => {
+    setBillingLoading(true);
+    setError("");
+    try {
+      const { url } = await postJson("/api/billing/checkout", {});
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message || "Couldn't start checkout. Try again.");
+      setBillingLoading(false);
+    }
+  }, []);
+
+  const handleOpenBillingPortal = useCallback(async () => {
+    setBillingLoading(true);
+    setError("");
+    try {
+      const { url } = await postJson("/api/billing/portal", {});
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message || "Couldn't open the billing portal. Try again.");
+      setBillingLoading(false);
+    }
+  }, []);
+
   const shiftDay = (delta) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + delta);
@@ -912,6 +938,12 @@ export default function Dashboard({ userId, name }) {
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           onRequestDeleteAccount={() => setShowDeleteConfirm(true)}
+          plan={profile?.plan ?? "free"}
+          billingLoading={billingLoading}
+          onStartCheckout={handleStartCheckout}
+          onOpenBillingPortal={handleOpenBillingPortal}
+          error={error}
+          onDismissError={() => setError("")}
         />
         {showDeleteConfirm && (
           <DeleteAccountModal
