@@ -29,6 +29,7 @@ function sanitizeChanges(targetType, raw) {
     if (Number.isFinite(raw.minutes)) changes.minutes = Math.max(1, Math.round(raw.minutes));
     if ([1, 2, 3].includes(raw.priority)) changes.priority = raw.priority;
     if (raw.date === null || isValidDate(raw.date)) changes.date = raw.date;
+    if (typeof raw.someday === "boolean") changes.someday = raw.someday;
   } else {
     if (isValidDate(raw.date)) changes.date = raw.date;
     if (TIME_RE.test(raw.startTime)) changes.startTime = raw.startTime;
@@ -127,7 +128,7 @@ export async function POST(req) {
   const [{ data: existingTasks }, { data: existingEvents }] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id,text,category,minutes,priority,due_date,done")
+      .select("id,text,category,minutes,priority,due_date,done,someday")
       .order("created_at", { ascending: true })
       .limit(150),
     supabase
@@ -138,7 +139,7 @@ export async function POST(req) {
   ]);
 
   const taskSummary = (existingTasks || [])
-    .map((t) => `- ${t.id}: "${t.text}" (${t.category}, ${t.minutes}min, priority ${t.priority}, due ${t.due_date || "none"}, ${t.done ? "done" : "not done"})`)
+    .map((t) => `- ${t.id}: "${t.text}" (${t.category}, ${t.minutes}min, priority ${t.priority}, due ${t.due_date || "none"}, ${t.done ? "done" : "not done"}${t.someday ? ", in someday" : ""})`)
     .join("\n") || "(none)";
   const eventSummary = (existingEvents || [])
     .map((e) => `- ${e.id}: "${e.text}" on ${e.event_date} from ${String(Math.floor(e.start_min / 60)).padStart(2, "0")}:${String(e.start_min % 60).padStart(2, "0")} to ${String(Math.floor(e.end_min / 60)).padStart(2, "0")}:${String(e.end_min % 60).padStart(2, "0")}`)
@@ -175,6 +176,8 @@ For everything that isn't a modification of an existing item, extract discrete n
 - "recurring": describes a repeating schedule (e.g. "school every day from 8am to 3pm", "work Mon-Fri 9-5"). Needs explicit start and end times.
 - "task": a plain flexible to-do with no time concept (e.g. "math homework", "email the landlord").
 
+For each "task" item, also decide someday: true if it reads as low-stakes, vague, or a "nice idea, not a real commitment" rather than something with actual intent to do it soon (e.g. "maybe learn guitar sometime", "look into a new couch eventually", "should really read more"). Use false for anything that sounds like a genuine to-do, which is most tasks — when honestly unsure, prefer false.
+
 Resolve any date reference (today, tomorrow, in a week, next Friday, a specific date, etc.) into an absolute date in YYYY-MM-DD format, relative to today's date above. If a clock time is stated but no date is mentioned, assume the date is today. If an item mentions no date or time at all, set date to null.
 
 Return ONLY valid JSON, no markdown fences: an object with three keys, "items", "modifications", and "clarifications".
@@ -186,6 +189,7 @@ Return ONLY valid JSON, no markdown fences: an object with three keys, "items", 
 - date: "YYYY-MM-DD" or null
 - minutes: integer duration estimate (task only)
 - priority: 1 (urgent), 2 (normal), or 3 (low) (task only)
+- someday: true or false (task only)
 - startTime: "HH:MM" 24-hour (event and recurring only)
 - endTime: "HH:MM" 24-hour (event and recurring only — estimate 30-60 min if unstated, for events only, not recurring)
 - hour: 1-12 (ambiguous_time only)
@@ -197,7 +201,7 @@ Return ONLY valid JSON, no markdown fences: an object with three keys, "items", 
 - targetType: "task" or "event"
 - id: the exact id string from the EXISTING lists above — never invent one
 - action: "update", "delete", or "complete" (complete only valid for tasks — marks it done)
-- changes: only for "update" — an object with just the fields being changed (task: text/category/minutes/priority/date; event: text/date/startTime/endTime)
+- changes: only for "update" — an object with just the fields being changed (task: text/category/minutes/priority/date/someday; event: text/date/startTime/endTime). Set someday true if the person says something like "that's not urgent" or "put X in someday" about an existing task.
 
 "clarifications" is an array of objects, each with:
 - targetType: "task" or "event"
@@ -260,6 +264,7 @@ Do not invent items not implied by the input. Do not use em dashes in any text f
         minutes: Number.isFinite(item?.minutes) ? Math.max(1, Math.round(item.minutes)) : 20,
         priority: [1, 2, 3].includes(item?.priority) ? item.priority : 2,
         date,
+        someday: item?.someday === true,
       });
     }
 

@@ -111,6 +111,11 @@ alter table public.profiles add column if not exists stripe_customer_id text;
 alter table public.profiles add column if not exists stripe_subscription_id text;
 create index if not exists profiles_stripe_customer_id_idx on public.profiles (stripe_customer_id);
 
+-- "Someday" tasks: low-stakes or vague ideas with no real urgency, kept
+-- out of the daily plan entirely (see lib/scheduling.js's scheduleTasks)
+-- rather than piling up as unscheduled/overdue. See components/Dashboard.js.
+alter table public.tasks add column if not exists someday boolean not null default false;
+
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 create index if not exists recordings_user_id_idx on public.recordings (user_id);
 create index if not exists events_user_id_date_idx on public.events (user_id, event_date);

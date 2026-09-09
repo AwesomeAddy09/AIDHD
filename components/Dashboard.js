@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Inbox, Sparkles, Clock, CheckCircle2, Circle, Plus, Moon, X, Loader2,
-  ListTree, Trash2, ChevronLeft, ChevronRight, LogOut, Play, CalendarDays, CalendarRange, Pencil,
+  ListTree, Trash2, ChevronLeft, ChevronRight, ChevronDown, LogOut, Play, CalendarDays, CalendarRange, Pencil,
   Settings as SettingsIcon, Mic, Focus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -139,6 +139,7 @@ export default function Dashboard({ userId, name }) {
   // now" toggle, not a standing preference, so it always resets to the
   // full list on a fresh load.
   const [focusMode, setFocusMode] = useState(false);
+  const [somedayExpanded, setSomedayExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState("dump"); // "dump" | "plan" | "wind-down"
   const [monthDate, setMonthDate] = useState(new Date());
   const [timeQueue, setTimeQueue] = useState([]); // items needing a start/end time
@@ -247,6 +248,7 @@ export default function Dashboard({ userId, name }) {
   const dayBounds = useMemo(() => getDayBounds(selectedDate, profile), [selectedDate, profile]);
   const scheduled = scheduleTasks(adjustedTasks, dayEvents, selectedDate, dayBounds);
   const nextTask = pickNextTask(scheduled);
+  const somedayTasks = tasks.filter((t) => t.someday);
 
   // Display/accessibility settings (theme, accent, text size, motion,
   // sound, density) — see lib/settings.js and components/Settings.js.
@@ -481,6 +483,12 @@ export default function Dashboard({ userId, name }) {
               if (c.minutes !== undefined) patch.minutes = c.minutes;
               if (c.priority !== undefined) patch.priority = c.priority;
               if (c.date !== undefined) patch.due_date = c.date;
+              // Moving something into someday clears any due date along
+              // with it — someday means no real timeline, by definition.
+              if (c.someday !== undefined) {
+                patch.someday = c.someday;
+                if (c.someday && c.date === undefined) patch.due_date = null;
+              }
               await updateTask(supabase, mod.id, patch);
               setTasks((prev) => prev.map((t) => {
                 if (t.id !== mod.id) return t;
@@ -491,6 +499,10 @@ export default function Dashboard({ userId, name }) {
                   ...(c.minutes !== undefined && { minutes: c.minutes }),
                   ...(c.priority !== undefined && { priority: c.priority }),
                   ...(c.date !== undefined && { dueDate: c.date }),
+                  ...(c.someday !== undefined && {
+                    someday: c.someday,
+                    ...(c.someday && c.date === undefined && { dueDate: null }),
+                  }),
                 };
               }));
             }
@@ -598,7 +610,7 @@ export default function Dashboard({ userId, name }) {
         maybePromptForReminders();
       }
       for (const t of newTaskDrafts) {
-        if (t.date && t.date !== todayKey) laterDates.add(t.date);
+        if (!t.someday && t.date && t.date !== todayKey) laterDates.add(t.date);
       }
 
       // A fixed-time event landing on the calendar should always be
@@ -610,6 +622,12 @@ export default function Dashboard({ userId, name }) {
         noticeParts.push(`Added "${newEventDrafts[0].text}" to your calendar.`);
       } else if (newEventDrafts.length > 1) {
         noticeParts.push(`Added ${newEventDrafts.length} things to your calendar.`);
+      }
+      const somedayCount = newTaskDrafts.filter((t) => t.someday).length;
+      if (somedayCount === 1) {
+        noticeParts.push(`Put "${newTaskDrafts.find((t) => t.someday).text}" in Someday, since it didn't read as urgent.`);
+      } else if (somedayCount > 1) {
+        noticeParts.push(`Put ${somedayCount} things in Someday, since they didn't read as urgent.`);
       }
       if (laterDates.size > 0) {
         const sorted = [...laterDates].sort();
@@ -848,6 +866,20 @@ export default function Dashboard({ userId, name }) {
       await deleteTask(supabase, id);
     } catch (e) {
       setError("Couldn't remove that task.");
+    }
+  };
+
+  // Moving into someday clears any due date along with it (no real
+  // timeline, by definition); moving back out just leaves the date as
+  // whatever it already was, so an undated one falls back to "today"
+  // the same way any other undated task does (see lib/scheduling.js).
+  const setTaskSomeday = async (id, someday) => {
+    const patch = someday ? { someday: true, due_date: null } : { someday: false };
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, someday, ...(someday && { dueDate: null }) } : t)));
+    try {
+      await updateTask(supabase, id, patch);
+    } catch (e) {
+      setError("Couldn't move that.");
     }
   };
 
@@ -1193,6 +1225,9 @@ export default function Dashboard({ userId, name }) {
                       <button onClick={() => setEditingTask(t)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
                         <Pencil size={12} /> Edit
                       </button>
+                      <button onClick={() => setTaskSomeday(t.id, true)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0 }}>
+                        Someday
+                      </button>
                       <button onClick={() => removeTask(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
                         <Trash2 size={12} /> Remove
                       </button>
@@ -1203,6 +1238,39 @@ export default function Dashboard({ userId, name }) {
             ))}
           </div>
         </section>
+
+        {somedayTasks.length > 0 && (
+          <section className="mb-10">
+            <button
+              onClick={() => setSomedayExpanded((v) => !v)}
+              className="flex items-center gap-2 w-full"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: somedayExpanded ? "12px" : 0 }}
+            >
+              {somedayExpanded ? <ChevronDown size={16} style={{ color: TOKENS.sub }} /> : <ChevronRight size={16} style={{ color: TOKENS.sub }} />}
+              <h2 style={{ fontSize: "15px", fontWeight: 500, margin: 0, color: TOKENS.sub }}>Someday ({somedayTasks.length})</h2>
+            </button>
+            {somedayExpanded && (
+              <div className="flex flex-col gap-2">
+                {somedayTasks.map((t) => (
+                  <div key={t.id} className="flex items-center gap-3" style={{ background: TOKENS.neutralBg, borderRadius: "10px", padding: "10px 12px" }}>
+                    <button onClick={() => toggleTaskDone(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: t.done ? TOKENS.calm : TOKENS.sub }}>
+                      {t.done ? <CheckCircle2 size={17} /> : <Circle size={17} />}
+                    </button>
+                    <span className="flex-1" style={{ fontSize: "13px", textDecoration: t.done ? "line-through" : "none", color: t.done ? TOKENS.sub : TOKENS.ink }}>
+                      {t.text}
+                    </span>
+                    <button onClick={() => setTaskSomeday(t.id, false)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, fontSize: "12px", padding: 0, whiteSpace: "nowrap" }}>
+                      Make active
+                    </button>
+                    <button onClick={() => removeTask(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: TOKENS.sub, padding: 0, display: "flex" }}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
         </>
         )}
 
